@@ -78,8 +78,11 @@ def pick_times(samples_per_second: Vec1, seconds: Vec1):
     samples.sort()
     return np.array(samples)
 
-for run_no in range(1, 10+1):
-    true_reading = create_gravity_vector()
+for run_no in range(0, 10+1):
+    if run_no == 0:
+        true_reading = GRAVITY_VECTOR()  # A set of reference samples.
+    else:
+        true_reading = create_gravity_vector()
     times = pick_times(30.0, 30.0)
 
     fout_metadata_name = f'out_{run_no:03d}.metadata.json'
@@ -95,5 +98,18 @@ for run_no in range(1, 10+1):
     with open(fout_name, 'w') as fout:
         for t in times:
             # Variation of 0.2 on roughly 9.8 is about 2% variation.
-            reading = true_reading + np.array([np.random.uniform(-0.1, 0.1), np.random.uniform(-0.1, 0.1), np.random.uniform(-0.1, 0.1)])
+            # Variation of 1.0 on roughly 9.8 is about 10% variation.
+            reading = true_reading + np.array([np.random.uniform(-0.5, 0.5), np.random.uniform(-0.5, 0.5), np.random.uniform(-0.5, 0.5)])
             fout.write(f'{t},{reading[0]},{reading[1]},{reading[2]}\n')
+
+"""
+set datafile separator ','
+plot 'out_000.csv' using 1:2 with lines title 'x', \
+     'out_000.csv' using 1:3 with lines title 'y', \
+     'out_000.csv' using 1:4 with lines title 'z'
+
+set datafile separator ','
+plot 'out_001.csv' using 1:2 with lines title 'x', \
+     'out_001.csv' using 1:3 with lines title 'y', \
+     'out_001.csv' using 1:4 with lines title 'z'
+"""
