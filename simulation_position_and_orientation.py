@@ -28,7 +28,7 @@ basis_magnetic = np.array([0.0, 1.0, 0.0]) # teslas (TODO get an appropriate val
 
 # Our data comes as an initial position and orientation followed by deltas.
 # Use cummsum so that we get the absolute position and orientation of the sensor.
-data = PositionAndOrientationData('sample_position_and_orientation_02')
+data = PositionAndOrientationData('sample_position_and_orientation_03')
 cumsum_data = data.df.cumsum()
 
 # Raw Samples
@@ -74,13 +74,13 @@ dsc_omega_y = cs_omega_y(dsc_t)
 dsc_omega_z = cs_omega_z(dsc_t)
 
 # Sensor Orientation Matrixes
-dsc_rot_mat_x = rotate_about_z(dsc_theta_x)
+dsc_rot_mat_x = rotate_about_x(dsc_theta_x)
 dsc_rot_mat_y = rotate_about_y(dsc_theta_y)
-dsc_rot_mat_z = rotate_about_x(dsc_theta_z)
+dsc_rot_mat_z = rotate_about_z(dsc_theta_z)
 # Reference Action Matrixes
-dsc_rot_mat_x_rev = rotate_about_z(-dsc_theta_x)
+dsc_rot_mat_x_rev = rotate_about_x(-dsc_theta_x)
 dsc_rot_mat_y_rev = rotate_about_y(-dsc_theta_y)
-dsc_rot_mat_z_rev = rotate_about_x(-dsc_theta_z)
+dsc_rot_mat_z_rev = rotate_about_z(-dsc_theta_z)
 dsc_rot_action_rev = (
     dsc_rot_mat_z_rev.transpose(2, 0, 1) @
     dsc_rot_mat_y_rev.transpose(2, 0, 1) @
@@ -88,12 +88,15 @@ dsc_rot_action_rev = (
 )
 
 # We use dsc_rot_action_rev since the rotation action acts inversely on the reference vectors
-dsc_gravity = ((dsc_rot_action_rev) @ basis_gravity).transpose(1, 0)
+dsc_gravity = ((dsc_rot_action_rev) @ basis_gravity).T
 print(f'{dsc_gravity.shape=}')
-dsc_magnetic = ((dsc_rot_action_rev) @ basis_magnetic).transpose(1, 0)
+dsc_magnetic = ((dsc_rot_action_rev) @ basis_magnetic).T
 print(f'{dsc_magnetic.shape=}')
 
-accel_vector = np.stack([dsc_ax, dsc_ay, dsc_az]) + dsc_gravity
+accel_vector_absolute = np.stack([dsc_ax, dsc_ay, dsc_az]).T
+print(f'{accel_vector_absolute.shape=}')
+accel_vector_oriented = dsc_rot_action_rev @ accel_vector_absolute[:,:,np.newaxis]
+accel_vector = accel_vector_absolute.T + dsc_gravity
 print(f'{accel_vector.shape=}')
 magnetic_vector = dsc_magnetic
 print(f'{magnetic_vector.shape=}')
