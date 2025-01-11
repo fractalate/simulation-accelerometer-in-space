@@ -28,7 +28,7 @@ basis_magnetic = np.array([0.0, 1.0, 0.0]) # teslas (TODO get an appropriate val
 
 # Our data comes as an initial position and orientation followed by deltas.
 # Use cummsum so that we get the absolute position and orientation of the sensor.
-data = PositionAndOrientationData('sample_position_and_orientation_03')
+data = PositionAndOrientationData('sample_position_and_orientation_01')
 cumsum_data = data.df.cumsum()
 
 # Raw Samples
@@ -59,7 +59,7 @@ cs_omega_y = cs_theta_y.derivative(1)
 cs_omega_z = cs_theta_z.derivative(1)
 
 # Discretization
-dsc_t = np.linspace(t[0], t[len(t) - 1], 100) # TODO: Parameterize the fineness
+dsc_t = np.linspace(t[0], t[len(t) - 1], 1000) # TODO: Parameterize the fineness
 dsc_x = cs_x(dsc_t)
 dsc_y = cs_y(dsc_t)
 dsc_z = cs_z(dsc_t)
@@ -95,17 +95,30 @@ print(f'{dsc_magnetic.shape=}')
 
 accel_vector_absolute = np.stack([dsc_ax, dsc_ay, dsc_az]).T
 print(f'{accel_vector_absolute.shape=}')
-accel_vector_oriented = dsc_rot_action_rev @ accel_vector_absolute[:,:,np.newaxis]
-accel_vector = accel_vector_absolute.T + dsc_gravity
+# Need to expand accel_vector_absolute for @ broadcasting. (N, 3, 3) @ (N, 3, 1) -> (N, 3)
+accel_vector_oriented = (dsc_rot_action_rev @ accel_vector_absolute[:,:,np.newaxis]).squeeze()
+accel_vector = accel_vector_oriented.T + dsc_gravity
 print(f'{accel_vector.shape=}')
 magnetic_vector = dsc_magnetic
 print(f'{magnetic_vector.shape=}')
 
 out = np.concat([[dsc_t], accel_vector, [dsc_omega_x], [dsc_omega_y], [dsc_omega_z], magnetic_vector])
 print(f'{out.shape=}')
-
-with open('out.csv', 'w') as fout:
+with open('out_target.csv', 'w') as fout:
     for t,ax,ay,az,ox,oy,oz,mx,my,mz in out.transpose(1, 0):
+        fout.write(','.join(str(value) for value in [t,ax,ay,az,ox,oy,oz,mx,my,mz]) + '\n')
+
+# Make some noise!!!
+noisy_accel_vector = accel_vector + np.random.normal(size=accel_vector.shape, scale=1.0)  # TODO parameterize
+noisy_magnetic_vector = magnetic_vector + np.random.normal(size=magnetic_vector.shape, scale=0.1)  # TODO parameterize
+noisy_dsc_omega_x = dsc_omega_x + np.random.normal(size=dsc_omega_x.shape, scale=0.1)  # TODO parameterize
+noisy_dsc_omega_y = dsc_omega_y + np.random.normal(size=dsc_omega_y.shape, scale=0.1)  # TODO parameterize
+noisy_dsc_omega_z = dsc_omega_z + np.random.normal(size=dsc_omega_z.shape, scale=0.1)  # TODO parameterize
+
+out_noisy = np.concat([[dsc_t], accel_vector, [noisy_dsc_omega_x], [noisy_dsc_omega_y], [noisy_dsc_omega_z], noisy_magnetic_vector])
+print(f'{out_noisy.shape=}')
+with open('out_noisy.csv', 'w') as fout:
+    for t,ax,ay,az,ox,oy,oz,mx,my,mz in out_noisy.transpose(1, 0):
         fout.write(','.join(str(value) for value in [t,ax,ay,az,ox,oy,oz,mx,my,mz]) + '\n')
 
 # Stuff for pretty pictures
@@ -137,3 +150,20 @@ ax.legend()
 plt.show()
 
 # TODO: How does this look for more dense Hamiltonian cycles
+
+"""
+set datafile separator ','
+plot 'out_noisy.csv' using 1:2 with lines title 'ax', \
+     'out_noisy.csv' using 1:3 with lines title 'ay', \
+     'out_noisy.csv' using 1:4 with lines title 'az'
+
+set datafile separator ','
+plot 'out_noisy.csv' using 1:5 with lines title 'gx', \
+     'out_noisy.csv' using 1:6 with lines title 'gy', \
+     'out_noisy.csv' using 1:7 with lines title 'gz'
+
+set datafile separator ','
+plot 'out_noisy.csv' using 1:8 with lines title 'mx', \
+     'out_noisy.csv' using 1:9 with lines title 'my', \
+     'out_noisy.csv' using 1:10 with lines title 'mz'
+"""
