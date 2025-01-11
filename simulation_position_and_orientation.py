@@ -4,37 +4,7 @@ import pandas as pd
 from scipy.interpolate import CubicSpline
 import matplotlib.pyplot as plt
 
-def getOutputFilenamePrefix(run: int):
-    return f'out_position_and_orientation_{run:04d}'
-
-def getOutputFilename(run: int, kind: str):
-    assert kind in ['reading', 'reference', 'metadata']
-    if kind in ['reading', 'reference']:
-        return f'{getOutputFilenamePrefix(run)}.{kind}.csv'
-    elif kind in ['metadata']:
-        return f'{getOutputFilenamePrefix(run)}.{kind}.json'
-    assert False  # Womp, womp.
-
-def rotate_about_x(vector, theta):
-    return np.array([
-        [1.0, 0.0, 0.0],
-        [0.0, np.cos(theta), -np.sin(theta)],
-        [0.0, np.sin(theta), np.cos(theta)],
-    ]) @ vector
-
-def rotate_about_y(vector, theta):
-    return np.array([
-        [np.cos(theta), 0.0, np.sin(theta)],
-        [0.0, 1.0, 0.0],
-        [-np.sin(theta), 0.0, np.cos(theta)],
-    ]) @ vector
-
-def rotate_about_z(vector, theta):
-    return np.array([
-        [np.cos(theta), -np.sin(theta), 0.0],
-        [np.sin(theta), np.cos(theta), 0.0],
-        [0.0, 0.0, 1.0],
-    ]) @ vector
+from util import rotate_about_x, rotate_about_y, rotate_about_z
 
 class PositionAndOrientationData():
     # `prefix` is the input sample prefix from which the associated CSV and JSON metadata will be loaded.
@@ -50,77 +20,117 @@ class PositionAndOrientationData():
         # t,x,y,z,rx,ry,rz
         self.df = pd.read_csv(file_csv_path)
 
+# In our space:
+# - "Down" is negative Z.
+# - "North" is positive Y.
+basis_gravity = np.array([0.0, 0.0, -9.8]) # meters/second
+basis_magnetic = np.array([0.0, 1.0, 0.0]) # teslas (TODO get an appropriate value)
 
-data = PositionAndOrientationData('sample_position_and_orientation_01')
+# Our data comes as an initial position and orientation followed by deltas.
+# Use cummsum so that we get the absolute position and orientation of the sensor.
+data = PositionAndOrientationData('sample_position_and_orientation_02')
 cumsum_data = data.df.cumsum()
 
-t = cumsum_data['time' ]
+# Raw Samples
+t = cumsum_data['time']
 x = cumsum_data['x']
 y = cumsum_data['y']
 z = cumsum_data['z']
-rx = cumsum_data['rx'].values * 2 * np.pi
-ry = cumsum_data['ry'].values * 2 * np.pi
-rz = cumsum_data['rz'].values * 2 * np.pi
+theta_x = cumsum_data['rx'].values * 2 * np.pi
+theta_y = cumsum_data['ry'].values * 2 * np.pi
+theta_z = cumsum_data['rz'].values * 2 * np.pi
 
+# Cubic Splines of Position and Orientation
 cs_x = CubicSpline(t, x)
 cs_y = CubicSpline(t, y)
 cs_z = CubicSpline(t, z)
-cs_rx = CubicSpline(t, rx)
-cs_ry = CubicSpline(t, ry)
-cs_rz = CubicSpline(t, rz)
+cs_theta_x = CubicSpline(t, theta_x)  # TODO: Is a cubic spline good for this quantity? Would linear be better?
+cs_theta_y = CubicSpline(t, theta_y)
+cs_theta_z = CubicSpline(t, theta_z)
 
-t_new = np.linspace(t[0], t[len(t) - 1], 100)
-x_new = cs_x(t_new)
-y_new = cs_y(t_new)
-z_new = cs_z(t_new)
-rx_new = cs_rx(t_new)
-ry_new = cs_ry(t_new)
-rz_new = cs_rz(t_new)
+# Accelerations
+cs_ax = cs_x.derivative(2)
+cs_ay = cs_y.derivative(2)
+cs_az = cs_z.derivative(2)
 
-def rotate_about_x(theta):
-    return np.array([
-        [1.0 + 0.0 * theta, 0.0 * theta, 0.0 * theta],
-        [0.0 * theta, np.cos(theta), -np.sin(theta)],
-        [0.0 * theta, np.sin(theta), np.cos(theta)],
-    ])
+# Angular Velocities
+cs_omega_x = cs_theta_x.derivative(1)
+cs_omega_y = cs_theta_y.derivative(1)
+cs_omega_z = cs_theta_z.derivative(1)
 
-def rotate_about_y(theta):
-    return np.array([
-        [np.cos(theta), 0.0 * theta, np.sin(theta)],
-        [0.0 * theta, 1.0 + 0.0 * theta, 0.0 * theta],
-        [-np.sin(theta), 0.0 * theta, np.cos(theta)],
-    ])
+# Discretization
+dsc_t = np.linspace(t[0], t[len(t) - 1], 100) # TODO: Parameterize the fineness
+dsc_x = cs_x(dsc_t)
+dsc_y = cs_y(dsc_t)
+dsc_z = cs_z(dsc_t)
+dsc_theta_x = cs_theta_x(dsc_t)
+dsc_theta_y = cs_theta_y(dsc_t)
+dsc_theta_z = cs_theta_z(dsc_t)
+dsc_ax = cs_ax(dsc_t)
+dsc_ay = cs_ay(dsc_t)
+dsc_az = cs_az(dsc_t)
+dsc_omega_x = cs_omega_x(dsc_t)
+dsc_omega_y = cs_omega_y(dsc_t)
+dsc_omega_z = cs_omega_z(dsc_t)
 
-def rotate_about_z(theta):
-    return np.array([
-        [np.cos(theta), -np.sin(theta), 0.0 * theta],
-        [np.sin(theta), np.cos(theta), 0.0 * theta],
-        [0.0 * theta, 0.0 * theta, 1.0 + theta * 0.0],
-    ])
+# Sensor Orientation Matrixes
+dsc_rot_mat_x = rotate_about_z(dsc_theta_x)
+dsc_rot_mat_y = rotate_about_y(dsc_theta_y)
+dsc_rot_mat_z = rotate_about_x(dsc_theta_z)
+# Reference Action Matrixes
+dsc_rot_mat_x_rev = rotate_about_z(-dsc_theta_x)
+dsc_rot_mat_y_rev = rotate_about_y(-dsc_theta_y)
+dsc_rot_mat_z_rev = rotate_about_x(-dsc_theta_z)
+dsc_rot_action_rev = (
+    dsc_rot_mat_z_rev.transpose(2, 0, 1) @
+    dsc_rot_mat_y_rev.transpose(2, 0, 1) @
+    dsc_rot_mat_x_rev.transpose(2, 0, 1)
+)
 
-rmz = rotate_about_z(rz)
-rmy = rotate_about_y(ry)
-rmx = rotate_about_x(rx)
+# We use dsc_rot_action_rev since the rotation action acts inversely on the reference vectors
+dsc_gravity = ((dsc_rot_action_rev) @ basis_gravity).transpose(1, 0)
+print(f'{dsc_gravity.shape=}')
+dsc_magnetic = ((dsc_rot_action_rev) @ basis_magnetic).transpose(1, 0)
+print(f'{dsc_magnetic.shape=}')
 
-rots = (rmz.transpose(2, 0, 1) @ rmy.transpose(2, 0, 1)) @ rmx.transpose(2, 0, 1)
+accel_vector = np.stack([dsc_ax, dsc_ay, dsc_az]) + dsc_gravity
+print(f'{accel_vector.shape=}')
+magnetic_vector = dsc_magnetic
+print(f'{magnetic_vector.shape=}')
 
+out = np.concat([[dsc_t], accel_vector, [dsc_omega_x], [dsc_omega_y], [dsc_omega_z], magnetic_vector])
+print(f'{out.shape=}')
+
+with open('out.csv', 'w') as fout:
+    for t,ax,ay,az,ox,oy,oz,mx,my,mz in out.transpose(1, 0):
+        fout.write(','.join(str(value) for value in [t,ax,ay,az,ox,oy,oz,mx,my,mz]) + '\n')
+
+# Stuff for pretty pictures
+rmz_samples = rotate_about_z(theta_z)
+rmy_samples = rotate_about_y(theta_y)
+rmx_samples = rotate_about_x(theta_x)
+rots_samples = (rmz_samples.transpose(2, 0, 1) @ rmy_samples.transpose(2, 0, 1)) @ rmx_samples.transpose(2, 0, 1)
 basis_x = np.array([1.0, 0.0, 0.0])
 basis_y = np.array([0.0, 1.0, 0.0])
 basis_z = np.array([0.0, 0.0, 1.0])
+rots = (dsc_rot_mat_z.transpose(2, 0, 1) @ dsc_rot_mat_y.transpose(2, 0, 1)) @ dsc_rot_mat_x.transpose(2, 0, 1)
+ox_samples = (rots_samples @ basis_x).transpose(1, 0)
+oy_samples = (rots_samples @ basis_y).transpose(1, 0)
+oz_samples = (rots_samples @ basis_z).transpose(1, 0)
 
-ox = (rots @ basis_x).transpose(1, 0)
-oy = (rots @ basis_y).transpose(1, 0)
-oz = (rots @ basis_z).transpose(1, 0)
-
+# Pretty pictures
 fig = plt.figure()
 ax = fig.add_subplot(111, projection='3d')
-ax.plot(x_new, y_new, z_new, label='Interpolated Curve')
-ax.quiver(x, y, z, *ox, color='red', length=0.25, normalize=True)
-ax.quiver(x, y, z, *oy, color='green', length=0.25, normalize=True)
-ax.quiver(x, y, z, *oz, color='blue', length=0.25, normalize=True)
+ax.set_box_aspect([1, 1, 1])
+ax.plot(dsc_x, dsc_y, dsc_z, label='Interpolated Curve')
+ax.quiver(x, y, z, *ox_samples, color='red', length=0.25, normalize=True)
+ax.quiver(x, y, z, *oy_samples, color='green', length=0.25, normalize=True)
+ax.quiver(x, y, z, *oz_samples, color='blue', length=0.25, normalize=True)
 ax.scatter(x, y, z, color='black', label='Original Points')
 ax.set_xlabel('X')
 ax.set_ylabel('Y')
 ax.set_zlabel('Z')
 ax.legend()
 plt.show()
+
+# TODO: How does this look for more dense Hamiltonian cycles
