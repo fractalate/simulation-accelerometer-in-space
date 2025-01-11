@@ -115,7 +115,7 @@ noisy_dsc_omega_x = dsc_omega_x + np.random.normal(size=dsc_omega_x.shape, scale
 noisy_dsc_omega_y = dsc_omega_y + np.random.normal(size=dsc_omega_y.shape, scale=0.1)  # TODO parameterize
 noisy_dsc_omega_z = dsc_omega_z + np.random.normal(size=dsc_omega_z.shape, scale=0.1)  # TODO parameterize
 
-out_noisy = np.concat([[dsc_t], accel_vector, [noisy_dsc_omega_x], [noisy_dsc_omega_y], [noisy_dsc_omega_z], noisy_magnetic_vector])
+out_noisy = np.concat([[dsc_t], noisy_accel_vector, [noisy_dsc_omega_x], [noisy_dsc_omega_y], [noisy_dsc_omega_z], noisy_magnetic_vector])
 print(f'{out_noisy.shape=}')
 with open('out_noisy.csv', 'w') as fout:
     for t,ax,ay,az,ox,oy,oz,mx,my,mz in out_noisy.transpose(1, 0):
@@ -166,4 +166,19 @@ set datafile separator ','
 plot 'out_noisy.csv' using 1:8 with lines title 'mx', \
      'out_noisy.csv' using 1:9 with lines title 'my', \
      'out_noisy.csv' using 1:10 with lines title 'mz'
+     
+set datafile separator ','
+plot 'out_target.csv' using 1:2 with lines title 'ax', \
+     'out_target.csv' using 1:3 with lines title 'ay', \
+     'out_target.csv' using 1:4 with lines title 'az'
+
+set datafile separator ','
+plot 'out_target.csv' using 1:5 with lines title 'gx', \
+     'out_target.csv' using 1:6 with lines title 'gy', \
+     'out_target.csv' using 1:7 with lines title 'gz'
+
+set datafile separator ','
+plot 'out_target.csv' using 1:8 with lines title 'mx', \
+     'out_target.csv' using 1:9 with lines title 'my', \
+     'out_target.csv' using 1:10 with lines title 'mz'
 """
