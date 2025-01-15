@@ -6,4 +6,4 @@ Tools for producing synthetic sensor readings of an accelerometer, gyroscope, an
 python3 simulation_position_and_orientation.py
 ```
 
-This will generate a `data` directory that can be used with [https://github.com/fractalate/ai-accelerometer-helper](https://github.com/fractalate/ai-accelerometer-helper).
+This will generate a `data` directory that can be used with [AI Accelerometer Helper](https://github.com/fractalate/ai-accelerometer-helper).
