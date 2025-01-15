@@ -42,7 +42,7 @@ theta_y = cumsum_data['ry'].values * 2 * np.pi
 theta_z = cumsum_data['rz'].values * 2 * np.pi
 
 # returns (target, noisy) out data
-def interpolate_and_add_noise(t, x, y, z, theta_x, theta_y, theta_z, num_out_samples=1000):
+def interpolate_and_add_noise(t, x, y, z, theta_x, theta_y, theta_z, num_out_samples=133*10):  # TODO: These magic numbers come from the fact that the model assumes 130 samples per second and this tool creates 10 seconds of data.
      # Cubic Splines of Position and Orientation
      cs_x = CubicSpline(t, x)
      cs_y = CubicSpline(t, y)
@@ -146,6 +146,7 @@ if __name__ == '__main__':
           save_out_data(f'data/out_{run:03d}_noisy.csv', noisy)
 
           if run == 0:
+               # Some redundant stuff for pretty pictures
                cs_x = CubicSpline(t, x)
                cs_y = CubicSpline(t, y)
                cs_z = CubicSpline(t, z)
@@ -155,7 +156,6 @@ if __name__ == '__main__':
                dsc_y = cs_y(dsc_t)
                dsc_z = cs_z(dsc_t)
 
-               # Some redundant stuff for pretty pictures
                cs_theta_x = CubicSpline(t, theta_x)  # TODO: Is a cubic spline good for this quantity? Would linear be better?
                cs_theta_y = CubicSpline(t, theta_y)
                cs_theta_z = CubicSpline(t, theta_z)
