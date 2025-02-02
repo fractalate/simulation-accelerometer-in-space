@@ -98,7 +98,7 @@ def save_out_data(filename, out):
                fout.write(','.join(str(value) for value in [t,ax,ay,az,ox,oy,oz,mx,my,mz]) + '\n')
 
 if __name__ == '__main__':
-     for run in range(100, -1, -1):
+     for run in range(999, -1, -1):
           t = np.arange(10)
           x = np.random.uniform(-0.5, 0.5, size=t.size).cumsum()
           y = np.random.uniform(-0.5, 0.5, size=t.size).cumsum()
