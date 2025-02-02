@@ -1,45 +1,15 @@
-import json
 import os
 import numpy as np
-import pandas as pd
 from scipy.interpolate import CubicSpline
 import matplotlib.pyplot as plt
 
 from util import rotate_about_x, rotate_about_y, rotate_about_z
-
-class PositionAndOrientationData():
-    # `prefix` is the input sample prefix from which the associated CSV and JSON metadata will be loaded.
-    def __init__(self, prefix: str):
-        file_csv_path = prefix + '.csv'
-        file_metadata_path = prefix + '.metadata.json'
-
-        self._prefix = prefix
-
-        with open(file_metadata_path, 'r') as fin:
-            self.metadata = json.loads(fin.read())
-
-        # t,x,y,z,rx,ry,rz
-        self.df = pd.read_csv(file_csv_path)
 
 # In our space:
 # - "Down" is negative Z.
 # - "North" is positive Y.
 basis_gravity = np.array([0.0, 0.0, -9.8]) # meters/second
 basis_magnetic = np.array([0.0, 1.0, 0.0]) # teslas (TODO get an appropriate value)
-
-# Our data comes as an initial position and orientation followed by deltas.
-# Use cummsum so that we get the absolute position and orientation of the sensor.
-data = PositionAndOrientationData('sample_position_and_orientation_01')
-cumsum_data = data.df.cumsum()
-
-# Raw Samples
-t = cumsum_data['time']
-x = cumsum_data['x']
-y = cumsum_data['y']
-z = cumsum_data['z']
-theta_x = cumsum_data['rx'].values * 2 * np.pi
-theta_y = cumsum_data['ry'].values * 2 * np.pi
-theta_z = cumsum_data['rz'].values * 2 * np.pi
 
 # returns (target, noisy) out data
 def interpolate_and_add_noise(t, x, y, z, theta_x, theta_y, theta_z, num_out_samples=133*10):  # TODO: These magic numbers come from the fact that the model assumes 130 samples per second and this tool creates 10 seconds of data.
@@ -96,7 +66,7 @@ def interpolate_and_add_noise(t, x, y, z, theta_x, theta_y, theta_z, num_out_sam
      accel_vector = accel_vector_oriented.T + dsc_gravity
      #print(f'{accel_vector.shape=}')
      magnetic_vector = dsc_magnetic
-     print(f'{magnetic_vector.shape=}')
+     #print(f'{magnetic_vector.shape=}')
 
      out = np.concat([[dsc_t], accel_vector, [dsc_omega_x], [dsc_omega_y], [dsc_omega_z], magnetic_vector])
 
@@ -140,10 +110,10 @@ if __name__ == '__main__':
           num_out_samples = 1000
           target, noisy = interpolate_and_add_noise(t, x, y, z, theta_x, theta_y, theta_z, num_out_samples=num_out_samples)
 
-          os.makedirs('data', exist_ok=True)
+          os.makedirs('data/simulation_position_and_orientation', exist_ok=True)
 
-          save_out_data(f'data/out_{run:03d}_target.csv', target)
-          save_out_data(f'data/out_{run:03d}_noisy.csv', noisy)
+          save_out_data(f'data/simulation_position_and_orientation/out_{run:03d}_target.csv', target)
+          save_out_data(f'data/simulation_position_and_orientation/out_{run:03d}_noisy.csv', noisy)
 
           if run == 0:
                # Some redundant stuff for pretty pictures

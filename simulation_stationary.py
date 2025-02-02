@@ -3,6 +3,7 @@ from numpy.typing import NDArray
 
 import json
 import numpy as np
+import os
 
 # Vector with 1 component.
 Vec1 = Annotated[NDArray[np.float64], (1,)]
@@ -106,7 +107,9 @@ for run_no in range(0, 10+1):
 
     times = pick_times(132.0, 60.0)
 
-    fout_metadata_name = f'out_{run_no:03d}.metadata.json'
+    os.makedirs('data/simulation_stationary', exist_ok=True)
+
+    fout_metadata_name = f'data/simulation_stationary/out_{run_no:03d}.metadata.json'
     print(f'Generating {fout_metadata_name}...')
     with open(fout_metadata_name, 'w') as fout:
         fout.write(json.dumps({
@@ -116,7 +119,7 @@ for run_no in range(0, 10+1):
         }, indent=2))
         fout.write('\n')
 
-    fout_name = f'out_{run_no:03d}.csv'
+    fout_name = f'data/simulation_stationary/out_{run_no:03d}.csv'
     print(f'Generating {fout_name}...')
     with open(fout_name, 'w') as fout:
         for t in times:
