@@ -10,6 +10,8 @@ Required libraries:
 pip install numpy scipy matplotlib pyarrow
 ```
 
+## Examples
+
 ```
 python3 simulation_position_and_orientation.py
 ```

@@ -12,8 +12,9 @@ parser = argparse.ArgumentParser(description="Simulation of Accelerometer in Spa
 parser.add_argument("-o", "--output", default="out", help="output directory to save simulation files (will be created)")
 parser.add_argument("-f", "--force", action="store_true", default=False, help="set if you want to generate output in an existing output directory")
 parser.add_argument("-p", "--number-of-points", type=int, default=10, help="number of points to interpolate through in the simulation")
-parser.add_argument("-n", "--number-of-samples", type=int, default=300, help="number of samples to take on interpolated curves")
+parser.add_argument("-s", "--number-of-samples", type=int, default=300, help="number of samples to take on interpolated curves")
 parser.add_argument("-d", "--duration-of-simulation", type=float, default=10.0, help="length of simulation in seconds")
+parser.add_argument("-n", "--number-of-simulations", type=float, default=10.0, help="number of simulations to produce")  # TODO validation
 parser.add_argument("--step-size-x", type=float, default=1.0, help="x step size")
 parser.add_argument("--step-size-y", type=float, default=1.0, help="y step size")
 parser.add_argument("--step-size-z", type=float, default=1.0, help="z step size")
