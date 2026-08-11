@@ -2,6 +2,14 @@
 
 Tools for producing synthetic sensor readings of an accelerometer, gyroscope, and/or magnetometer under various kinds of motion.
 
+## Setup
+
+Required libraries:
+
+```bash
+pip install numpy scipy matplotlib pyarrow
+```
+
 ```
 python3 simulation_position_and_orientation.py
 ```

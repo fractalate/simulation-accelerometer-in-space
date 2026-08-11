@@ -1,236 +1,351 @@
-import os
-import numpy as np
-from scipy.interpolate import CubicSpline
+import argparse
 import matplotlib.pyplot as plt
+import numpy as np
+import pathlib
+from scipy.interpolate import CubicSpline
+import sys
 
 from util import rotate_about_x, rotate_about_y, rotate_about_z
 
-# In our space:
-# - "Down" is negative Z.
-# - "North" is positive Y.
-basis_gravity = np.array([0.0, 0.0, -9.8]) # meters/second
-basis_magnetic = np.array([0.0, 1.0, 0.0]) # teslas (TODO get an appropriate value)
 
-# returns (target, noisy) out data
-def interpolate_and_add_noise(t, x, y, z, theta_x, theta_y, theta_z, num_out_samples=133*10):  # TODO: These magic numbers come from the fact that the model assumes 130 samples per second and this tool creates 10 seconds of data.
-     # Cubic Splines of Position and Orientation
-     cs_x = CubicSpline(t, x)
-     cs_y = CubicSpline(t, y)
-     cs_z = CubicSpline(t, z)
-     cs_theta_x = CubicSpline(t, theta_x)  # TODO: Is a cubic spline good for this quantity? Would linear be better?
-     cs_theta_y = CubicSpline(t, theta_y)
-     cs_theta_z = CubicSpline(t, theta_z)
+parser = argparse.ArgumentParser(description="Simulation of Accelerometer in Space")
+parser.add_argument("-o", "--output", default="out", help="output directory to save simulation files (will be created)")
+parser.add_argument("-f", "--force", action="store_true", default=False, help="set if you want to generate output in an existing output directory")
+parser.add_argument("-p", "--number-of-points", type=int, default=10, help="number of points to interpolate through in the simulation")
+parser.add_argument("-n", "--number-of-samples", type=int, default=300, help="number of samples to take on interpolated curves")
+parser.add_argument("-d", "--duration-of-simulation", type=float, default=10.0, help="length of simulation in seconds")
+parser.add_argument("--step-size-x", type=float, default=1.0, help="x step size")
+parser.add_argument("--step-size-y", type=float, default=1.0, help="y step size")
+parser.add_argument("--step-size-z", type=float, default=1.0, help="z step size")
+parser.add_argument("--turn-size-x", type=float, default=3.0/8.0*np.pi, help="x turn size in radians")
+parser.add_argument("--turn-size-y", type=float, default=3.0/8.0*np.pi, help="y turn size in radians")
+parser.add_argument("--turn-size-z", type=float, default=3.0/8.0*np.pi, help="z turn size in radians")
+parser.add_argument("--noise-accelerometer", type=float, default=0.05, help="accelerometer noise in m/s^2")  # TODO validation
+parser.add_argument("--noise-magnetometer", type=float, default=1.25e-6, help="magnetometer noise in tesla")  # TODO validation
+parser.add_argument("--noise-rotation", type=float, default=0.01*np.pi, help="rotation noise in radians")  # TODO validation
 
-     # Accelerations
-     cs_ax = cs_x.derivative(2)
-     cs_ay = cs_y.derivative(2)
-     cs_az = cs_z.derivative(2)
+args = parser.parse_args()
 
-     # Angular Velocities
-     cs_omega_x = cs_theta_x.derivative(1)
-     cs_omega_y = cs_theta_y.derivative(1)
-     cs_omega_z = cs_theta_z.derivative(1)
+if args.number_of_points <= 1:
+    print(f"number of points {args.number_of_points} must be > 1", file=sys.stderr)
+    sys.exit(1)
 
-     # Discretization
-     dsc_t = np.linspace(t[0], t[len(t) - 1], num_out_samples)
-     dsc_theta_x = cs_theta_x(dsc_t)
-     dsc_theta_y = cs_theta_y(dsc_t)
-     dsc_theta_z = cs_theta_z(dsc_t)
-     dsc_ax = cs_ax(dsc_t)
-     dsc_ay = cs_ay(dsc_t)
-     dsc_az = cs_az(dsc_t)
-     dsc_omega_x = cs_omega_x(dsc_t)
-     dsc_omega_y = cs_omega_y(dsc_t)
-     dsc_omega_z = cs_omega_z(dsc_t)
+if args.number_of_samples <= 1:
+    print(f"number of samples {args.number_of_samples} must be > 1", file=sys.stderr)
+    sys.exit(1)
 
-     # Reference Action Matrixes
-     dsc_rot_mat_x_rev = rotate_about_x(-dsc_theta_x)
-     dsc_rot_mat_y_rev = rotate_about_y(-dsc_theta_y)
-     dsc_rot_mat_z_rev = rotate_about_z(-dsc_theta_z)
-     dsc_rot_action_rev = (
-     dsc_rot_mat_z_rev.transpose(2, 0, 1) @
-     dsc_rot_mat_y_rev.transpose(2, 0, 1) @
-     dsc_rot_mat_x_rev.transpose(2, 0, 1)
-     )
+if args.duration_of_simulation <= 0:
+    print(f"duration of simulation {args.duration_of_simulation} must be > 0", file=sys.stderr)
+    sys.exit(1)
 
-     # We use dsc_rot_action_rev since the rotation action acts inversely on the reference vectors
-     dsc_gravity = ((dsc_rot_action_rev) @ basis_gravity).T
-     #print(f'{dsc_gravity.shape=}')
-     dsc_magnetic = ((dsc_rot_action_rev) @ basis_magnetic).T
-     #print(f'{dsc_magnetic.shape=}')
+if args.step_size_x <= 0:
+    print(f"step size x {args.step_size_x} must be > 0", file=sys.stderr)
+    sys.exit(1)
 
-     accel_vector_absolute = np.stack([dsc_ax, dsc_ay, dsc_az]).T
-     #print(f'{accel_vector_absolute.shape=}')
-     # Need to expand accel_vector_absolute for @ broadcasting. (N, 3, 3) @ (N, 3, 1) -> (N, 3)
-     accel_vector_oriented = (dsc_rot_action_rev @ accel_vector_absolute[:,:,np.newaxis]).squeeze()
-     accel_vector = accel_vector_oriented.T + dsc_gravity
-     #print(f'{accel_vector.shape=}')
-     magnetic_vector = dsc_magnetic
-     #print(f'{magnetic_vector.shape=}')
+if args.step_size_y <= 0:
+    print(f"step size y {args.step_size_y} must be > 0", file=sys.stderr)
+    sys.exit(1)
 
-     out = np.concat([[dsc_t], accel_vector, [dsc_omega_x], [dsc_omega_y], [dsc_omega_z], magnetic_vector])
+if args.step_size_z <= 0:
+    print(f"step size z {args.step_size_z} must be > 0", file=sys.stderr)
+    sys.exit(1)
 
-     #print(f'{out.shape=}')
-     #with open('out_target.csv', 'w') as fout:
-     #     for t,ax,ay,az,ox,oy,oz,mx,my,mz in out.transpose(1, 0):
-     #          fout.write(','.join(str(value) for value in [t,ax,ay,az,ox,oy,oz,mx,my,mz]) + '\n')
+if args.turn_size_x <= 0:
+    print(f"turn size x {args.turn_size_x} must be > 0", file=sys.stderr)
+    sys.exit(1)
 
-     # Make some noise!!!
-     noisy_accel_vector = accel_vector + np.random.normal(size=accel_vector.shape, scale=1.0)  # TODO parameterize
-     noisy_magnetic_vector = magnetic_vector + np.random.normal(size=magnetic_vector.shape, scale=0.1)  # TODO parameterize
-     noisy_dsc_omega_x = dsc_omega_x + np.random.normal(size=dsc_omega_x.shape, scale=0.1)  # TODO parameterize
-     noisy_dsc_omega_y = dsc_omega_y + np.random.normal(size=dsc_omega_y.shape, scale=0.1)  # TODO parameterize
-     noisy_dsc_omega_z = dsc_omega_z + np.random.normal(size=dsc_omega_z.shape, scale=0.1)  # TODO parameterize
+if args.turn_size_y <= 0:
+    print(f"turn size y {args.turn_size_y} must be > 0", file=sys.stderr)
+    sys.exit(1)
 
-     out_noisy = np.concat([[dsc_t], noisy_accel_vector, [noisy_dsc_omega_x], [noisy_dsc_omega_y], [noisy_dsc_omega_z], noisy_magnetic_vector])
-     #print(f'{out_noisy.shape=}')
-     #with open('out_noisy.csv', 'w') as fout:
-     #     for t,ax,ay,az,ox,oy,oz,mx,my,mz in out_noisy.transpose(1, 0):
-     #          fout.write(','.join(str(value) for value in [t,ax,ay,az,ox,oy,oz,mx,my,mz]) + '\n')
+if args.turn_size_z <= 0:
+    print(f"turn size z {args.turn_size_z} must be > 0", file=sys.stderr)
+    sys.exit(1)
 
-     return out.T, out_noisy.T
+out_dir = pathlib.Path(args.output)
+if out_dir.exists() and not args.force:
+    print(f"output directory {args.output} already exists", file=sys.stderr)
+    sys.exit(1)
+out_dir.mkdir(exist_ok=args.force)
 
-# out is one of the returned items from interpolate_and_add_noise()
-def save_out_data(filename, out):
-     with open(filename, 'w') as fout:
-          fout.write('t,ax,ay,az,gx,gy,gz,mx,my,mz\n')
-          for t,ax,ay,az,ox,oy,oz,mx,my,mz in out:
-               fout.write(','.join(str(value) for value in [t,ax,ay,az,ox,oy,oz,mx,my,mz]) + '\n')
 
-if __name__ == '__main__':
-     for run in range(999, -1, -1):
-          t = np.arange(10)
-          x = np.random.uniform(-0.5, 0.5, size=t.size).cumsum()
-          y = np.random.uniform(-0.5, 0.5, size=t.size).cumsum()
-          z = np.random.uniform(-0.5, 0.5, size=t.size).cumsum()
-          theta_x = np.random.uniform(0.0, 0.75 * np.pi, size=t.size).cumsum()
-          theta_y = np.random.uniform(0.0, 0.75 * np.pi, size=t.size).cumsum()
-          theta_z = np.random.uniform(0.0, 0.75 * np.pi, size=t.size).cumsum()
+BASIS_GRAVITY = np.array([0.0, 0.0, -9.8])  # Meters/Second
+BASIS_MAGNETIC = np.array([0.0, 5.0e-5, 0.0])  # Tesla
 
-          num_out_samples = 1000
-          target, noisy = interpolate_and_add_noise(t, x, y, z, theta_x, theta_y, theta_z, num_out_samples=num_out_samples)
 
-          os.makedirs('data/simulation_position_and_orientation', exist_ok=True)
+def create_reference_locations_and_orientations(
+    number_of_points,
+    step_size_x,
+    step_size_y,
+    step_size_z,
+    turn_size_x,
+    turn_size_y,
+    turn_size_z,
+):
+    x = np.random.uniform(-step_size_x, step_size_x, size=number_of_points).cumsum()
+    y = np.random.uniform(-step_size_y, step_size_y, size=number_of_points).cumsum()
+    z = np.random.uniform(-step_size_z, step_size_z, size=number_of_points).cumsum()
+    # We want x0, y0, z0 = (0, 0, 0) since the starting position doesn't matter and the
+    # model we train on the data can assume the position starts there too.
+    x -= x[0]
+    y -= y[0]
+    z -= z[0]
 
-          save_out_data(f'data/simulation_position_and_orientation/out_{run:03d}_target.csv', target)
-          save_out_data(f'data/simulation_position_and_orientation/out_{run:03d}_noisy.csv', noisy)
+    thetas_initial = np.random.uniform(0.0, 2.0*np.pi, size=3)
+    theta_x = np.random.uniform(-turn_size_x, turn_size_x, size=number_of_points).cumsum() + thetas_initial[0]
+    theta_y = np.random.uniform(-turn_size_y, turn_size_y, size=number_of_points).cumsum() + thetas_initial[1]
+    theta_z = np.random.uniform(-turn_size_z, turn_size_z, size=number_of_points).cumsum() + thetas_initial[2]
 
-          if run == 0:
-               # Some redundant stuff for pretty pictures
-               cs_x = CubicSpline(t, x)
-               cs_y = CubicSpline(t, y)
-               cs_z = CubicSpline(t, z)
+    return x, y, z, theta_x, theta_y, theta_z
 
-               dsc_t = np.linspace(t[0], t[len(t) - 1], num_out_samples)
-               dsc_x = cs_x(dsc_t)
-               dsc_y = cs_y(dsc_t)
-               dsc_z = cs_z(dsc_t)
 
-               cs_theta_x = CubicSpline(t, theta_x)  # TODO: Is a cubic spline good for this quantity? Would linear be better?
-               cs_theta_y = CubicSpline(t, theta_y)
-               cs_theta_z = CubicSpline(t, theta_z)
+def create_reference_times(
+    number_of_points,
+    duration_of_simulation,
+):
+    return np.linspace(0.0, duration_of_simulation, number_of_points)
 
-               dsc_theta_x = cs_theta_x(dsc_t)
-               dsc_theta_y = cs_theta_y(dsc_t)
-               dsc_theta_z = cs_theta_z(dsc_t)
 
-               dsc_rot_mat_x = rotate_about_x(dsc_theta_x)
-               dsc_rot_mat_y = rotate_about_y(dsc_theta_y)
-               dsc_rot_mat_z = rotate_about_z(dsc_theta_z)
+def create_interpolators(
+    t,
+    x,
+    y,
+    z,
+    theta_x,
+    theta_y,
+    theta_z,
+):
+    interpolator_x = CubicSpline(t, x)
+    interpolator_y = CubicSpline(t, y)
+    interpolator_z = CubicSpline(t, z)
 
-               rmz_samples = rotate_about_z(theta_z)
-               rmy_samples = rotate_about_y(theta_y)
-               rmx_samples = rotate_about_x(theta_x)
-               rots_samples = (rmz_samples.transpose(2, 0, 1) @ rmy_samples.transpose(2, 0, 1)) @ rmx_samples.transpose(2, 0, 1)
-               basis_x = np.array([1.0, 0.0, 0.0])
-               basis_y = np.array([0.0, 1.0, 0.0])
-               basis_z = np.array([0.0, 0.0, 1.0])
-               rots = (dsc_rot_mat_z.transpose(2, 0, 1) @ dsc_rot_mat_y.transpose(2, 0, 1)) @ dsc_rot_mat_x.transpose(2, 0, 1)
-               ox_samples = (rots_samples @ basis_x).transpose(1, 0)
-               oy_samples = (rots_samples @ basis_y).transpose(1, 0)
-               oz_samples = (rots_samples @ basis_z).transpose(1, 0)
+    interpolator_theta_x = CubicSpline(t, theta_x)
+    interpolator_theta_y = CubicSpline(t, theta_y)
+    interpolator_theta_z = CubicSpline(t, theta_z)
 
-               fig = plt.figure()
-               ax = fig.add_subplot(111, projection='3d')
-               ax.set_box_aspect([1, 1, 1])
-               ax.plot(dsc_x, dsc_y, dsc_z, label='Interpolated Curve')
-               ax.quiver(x, y, z, *ox_samples, color='red', length=0.05, normalize=True)
-               ax.quiver(x, y, z, *oy_samples, color='green', length=0.05, normalize=True)
-               ax.quiver(x, y, z, *oz_samples, color='blue', length=0.05, normalize=True)
-               ax.scatter(x, y, z, color='black', label='Original Points')
-               ax.set_xlabel('X')
-               ax.set_ylabel('Y')
-               ax.set_zlabel('Z')
-               ax.legend()
-               plt.show()
+    return interpolator_x, interpolator_y, interpolator_z, interpolator_theta_x, interpolator_theta_y, interpolator_theta_z
 
-"""
-# Stuff for pretty pictures
-rmz_samples = rotate_about_z(theta_z)
-rmy_samples = rotate_about_y(theta_y)
-rmx_samples = rotate_about_x(theta_x)
-rots_samples = (rmz_samples.transpose(2, 0, 1) @ rmy_samples.transpose(2, 0, 1)) @ rmx_samples.transpose(2, 0, 1)
-basis_x = np.array([1.0, 0.0, 0.0])
-basis_y = np.array([0.0, 1.0, 0.0])
-basis_z = np.array([0.0, 0.0, 1.0])
-rots = (dsc_rot_mat_z.transpose(2, 0, 1) @ dsc_rot_mat_y.transpose(2, 0, 1)) @ dsc_rot_mat_x.transpose(2, 0, 1)
-ox_samples = (rots_samples @ basis_x).transpose(1, 0)
-oy_samples = (rots_samples @ basis_y).transpose(1, 0)
-oz_samples = (rots_samples @ basis_z).transpose(1, 0)
 
-# Pretty pictures
-fig = plt.figure()
-ax = fig.add_subplot(111, projection='3d')
-ax.set_box_aspect([1, 1, 1])
-ax.plot(dsc_x, dsc_y, dsc_z, label='Interpolated Curve')
-ax.quiver(x, y, z, *ox_samples, color='red', length=0.25, normalize=True)
-ax.quiver(x, y, z, *oy_samples, color='green', length=0.25, normalize=True)
-ax.quiver(x, y, z, *oz_samples, color='blue', length=0.25, normalize=True)
-ax.scatter(x, y, z, color='black', label='Original Points')
-ax.set_xlabel('X')
-ax.set_ylabel('Y')
-ax.set_zlabel('Z')
-ax.legend()
-plt.show()
-"""
+def create_noisy_sample_times(
+    number_of_samples,
+    duration_of_simulation,
+):
+    sample_t = np.linspace(0.0, duration_of_simulation, number_of_samples)
 
-"""
-# Sensor Orientation Matrixes
-dsc_rot_mat_x = rotate_about_x(dsc_theta_x)
-dsc_rot_mat_y = rotate_about_y(dsc_theta_y)
-dsc_rot_mat_z = rotate_about_z(dsc_theta_z)
-"""
+    duration_per_sample = duration_of_simulation / number_of_samples
+    jitter_time = duration_per_sample / 5  # TODO maybe it make sense to have this be a parameter?
 
-# TODO: How does this look for more dense Hamiltonian cycles
+    while True:
+        suitable = True
 
-"""
-set datafile separator ','
-plot 'out_000_target.csv' using 1:2 with lines title 'ax', \
-     'out_000_target.csv' using 1:3 with lines title 'ay', \
-     'out_000_target.csv' using 1:4 with lines title 'az'
+        # We want times to be roughly equally spaced, so use a normal distribution so we're
+        # roughly on the expected references times.
+        jitters = np.random.normal(loc=0.0, scale=jitter_time, size=number_of_samples)
+        maybe_sample_t = sample_t + jitters
 
-set datafile separator ','
-plot 'out_000_target.csv' using 1:5 with lines title 'gx', \
-     'out_000_target.csv' using 1:6 with lines title 'gy', \
-     'out_000_target.csv' using 1:7 with lines title 'gz'
+        # Reject jitters that put the samples too close together or reorder them.
+        for i in range(number_of_samples - 1):
+            if maybe_sample_t[i] >= maybe_sample_t[i + 1]:
+                suitable = False
+                break
 
-set datafile separator ','
-plot 'out_000_target.csv' using 1:8 with lines title 'mx', \
-     'out_000_target.csv' using 1:9 with lines title 'my', \
-     'out_000_target.csv' using 1:10 with lines title 'mz'
-     
-set datafile separator ','
-plot 'out_000_noisy.csv' using 1:2 with lines title 'ax', \
-     'out_000_noisy.csv' using 1:3 with lines title 'ay', \
-     'out_000_noisy.csv' using 1:4 with lines title 'az'
+        if suitable:
+            # TODO not sure if I should normalize so t0 = 0. ideally we wouldn't have to since essentially
+            # the model we train should be concerned with the time deltas primarily.
+            sample_t = maybe_sample_t
+            break
 
-set datafile separator ','
-plot 'out_000_noisy.csv' using 1:5 with lines title 'gx', \
-     'out_000_noisy.csv' using 1:6 with lines title 'gy', \
-     'out_000_noisy.csv' using 1:7 with lines title 'gz'
+    return sample_t
 
-set datafile separator ','
-plot 'out_000_noisy.csv' using 1:8 with lines title 'mx', \
-     'out_000_noisy.csv' using 1:9 with lines title 'my', \
-     'out_000_noisy.csv' using 1:10 with lines title 'mz'
-"""
+
+def create_target_sample_locations(
+    sample_t,
+    interpolator_x,
+    interpolator_y,
+    interpolator_z,
+):
+    sample_x = interpolator_x(sample_t)
+    sample_y = interpolator_y(sample_t)
+    sample_z = interpolator_z(sample_t)
+
+    return sample_x, sample_y, sample_z
+
+
+def calculate_sample_sensor_readings(
+    sample_t,
+    interpolator_x,
+    interpolator_y,
+    interpolator_z,
+    interpolator_theta_x,
+    interpolator_theta_y,
+    interpolator_theta_z,
+):
+    # 2nd derivative of position is acceleration.
+    interpolator_acceleration_x = interpolator_x.derivative(2)
+    interpolator_acceleration_y = interpolator_y.derivative(2)
+    interpolator_acceleration_z = interpolator_z.derivative(2)
+
+    sample_acceleration_absolute_x = interpolator_acceleration_x(sample_t)
+    sample_acceleration_absolute_y = interpolator_acceleration_y(sample_t)
+    sample_acceleration_absolute_z = interpolator_acceleration_z(sample_t)
+    sample_acceleration_absolute = np.stack([
+        sample_acceleration_absolute_x,
+        sample_acceleration_absolute_y,
+        sample_acceleration_absolute_z,
+    ]).T
+
+    sample_theta_x = interpolator_theta_x(sample_t)
+    sample_theta_y = interpolator_theta_y(sample_t)
+    sample_theta_z = interpolator_theta_z(sample_t)
+
+    # 1st derivative of orientation angle is angular velocity.
+    interpolator_angular_velocity_x = interpolator_theta_x.derivative(1)
+    interpolator_angular_velocity_y = interpolator_theta_y.derivative(1)
+    interpolator_angular_velocity_z = interpolator_theta_z.derivative(1)
+
+    sample_angular_velocity_x = interpolator_angular_velocity_x(sample_t)
+    sample_angular_velocity_y = interpolator_angular_velocity_y(sample_t)
+    sample_angular_velocity_z = interpolator_angular_velocity_z(sample_t)
+
+    # Theta measures the orientation of the unit and rotation has the inverse reaction on the
+    # sensor reading, so invert the angles and create the naive rotation matrix ("naive" because
+    # it's not the 4D rotation matrix or quaternions which are generally better in practice).
+    rotate_x = rotate_about_x(-sample_theta_x)
+    rotate_y = rotate_about_y(-sample_theta_y)
+    rotate_z = rotate_about_z(-sample_theta_z)
+    rotation_action_matrix = (
+        rotate_z.transpose(2, 0, 1) @
+        rotate_y.transpose(2, 0, 1) @
+        rotate_x.transpose(2, 0, 1)
+    )
+
+    sample_gravity = (rotation_action_matrix @ BASIS_GRAVITY).T
+    # Need to expand sample_acceleration_absolute for @ broadcasting. (N, 3, 3) @ (N, 3, 1) -> (N, 3)
+    accel_vector_oriented = (rotation_action_matrix @ sample_acceleration_absolute[:,:,np.newaxis]).squeeze()
+    sample_acceleration = accel_vector_oriented.T + sample_gravity
+
+    sample_magnetic = (rotation_action_matrix @ BASIS_MAGNETIC).T
+
+    sample_angular_velocity = np.stack([
+        sample_angular_velocity_x,
+        sample_angular_velocity_y,
+        sample_angular_velocity_z,
+    ]).T
+
+    return (
+        sample_acceleration,
+        sample_magnetic,
+        sample_angular_velocity,
+    )
+
+
+def run_simulation(
+    number_of_points,
+    duration_of_simulation,
+    number_of_samples,
+    step_size_x,
+    step_size_y,
+    step_size_z,
+    turn_size_x,
+    turn_size_y,
+    turn_size_z,
+    noise_accelerometer,
+    noise_magnetometer,
+    noise_rotation,
+):
+    t = create_reference_times(
+        number_of_points=number_of_points,
+        duration_of_simulation=duration_of_simulation,
+    )
+
+    x, y, z, theta_x, theta_y, theta_z = create_reference_locations_and_orientations(
+        number_of_points=number_of_points,
+        step_size_x=step_size_x,
+        step_size_y=step_size_y,
+        step_size_z=step_size_z,
+        turn_size_x=turn_size_x,
+        turn_size_y=turn_size_y,
+        turn_size_z=turn_size_z,
+    )
+
+    (
+        interpolator_x, interpolator_y, interpolator_z,
+        interpolator_theta_x, interpolator_theta_y, interpolator_theta_z 
+    ) = create_interpolators(
+        t=t,
+        x=x, y=y, z=z,
+        theta_x=theta_x,
+        theta_y=theta_y,
+        theta_z=theta_z,
+    )
+
+    sample_t = create_noisy_sample_times(
+        number_of_samples=number_of_samples,
+        duration_of_simulation=duration_of_simulation,
+    )
+
+    (
+        sample_x,
+        sample_y,
+        sample_z,
+    ) = create_target_sample_locations(
+        sample_t=sample_t,
+        interpolator_x=interpolator_x,
+        interpolator_y=interpolator_y,
+        interpolator_z=interpolator_z,
+    )
+
+    (
+        sample_acceleration,
+        sample_magnetic,
+        sample_angular_velocity,
+    ) = calculate_sample_sensor_readings(
+        sample_t=sample_t,
+        interpolator_x=interpolator_x,
+        interpolator_y=interpolator_y,
+        interpolator_z=interpolator_z,
+        interpolator_theta_x=interpolator_theta_x,
+        interpolator_theta_y=interpolator_theta_y,
+        interpolator_theta_z=interpolator_theta_z,
+    )
+
+    # We want white noise on the sensor, so use a uniform distribution.
+    noisy_acceleration = sample_acceleration + np.random.uniform(-noise_accelerometer, noise_accelerometer, size=sample_acceleration.shape)
+    noisy_magnetic_vector = sample_magnetic + np.random.uniform(-noise_magnetometer, noise_magnetometer, size=sample_magnetic.shape)
+    noisy_angular_velocity = sample_angular_velocity + np.random.uniform(-noise_rotation, noise_rotation, size=sample_angular_velocity.shape)
+
+    return (
+        sample_t,
+        sample_x,
+        sample_y,
+        sample_z,
+        noisy_acceleration,
+        noisy_magnetic_vector,
+        noisy_angular_velocity,
+    )
+
+
+(
+    sample_t,
+    sample_x,
+    sample_y,
+    sample_z,
+    noisy_acceleration,
+    noisy_magnetic_vector,
+    noisy_angular_velocity,
+) = run_simulation(
+    number_of_points=args.number_of_points,
+    duration_of_simulation=args.duration_of_simulation,
+    number_of_samples=args.number_of_samples,
+    step_size_x=args.step_size_x,
+    step_size_y=args.step_size_y,
+    step_size_z=args.step_size_z,
+    turn_size_x=args.turn_size_x,
+    turn_size_y=args.turn_size_y,
+    turn_size_z=args.turn_size_z,
+    noise_accelerometer=args.noise_accelerometer,
+    noise_magnetometer=args.noise_magnetometer,
+    noise_rotation=args.noise_rotation,
+)
+
+# TODO write to output file
