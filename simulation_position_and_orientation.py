@@ -5,6 +5,7 @@ import pathlib
 import pyarrow as pa
 import pyarrow.parquet as pq
 from scipy.interpolate import CubicSpline
+from scipy.spatial.transform import Rotation
 import sys
 
 from util import rotate_about_x, rotate_about_y, rotate_about_z
@@ -74,6 +75,90 @@ out_dir.mkdir(exist_ok=args.force)
 
 BASIS_GRAVITY = np.array([0.0, 0.0, -9.8])  # Meters/Second
 BASIS_MAGNETIC = np.array([0.0, 5.0e-5, 0.0])  # Tesla
+
+
+class Interpolators():
+    def __init__(self, reference_times, reference_velocity, reference_angular_velocity, initial_angular_velocity):
+        self.velocity = CubicSpline(reference_times, reference_velocity)
+        self.position = self.velocity.antiderivative()
+        self.acceleration = self.velocity.derivative()
+        self.angular_velocity = CubicSpline(reference_times, reference_angular_velocity)
+        self.rotation = self.angular_velocity.antiderivative()
+        self.rotation.c[-1, :] += initial_angular_velocity
+
+
+class Samples():
+    def __init__(self, sample_times, interpolators):
+        self.velocity = interpolators.velocity(sample_times)
+        self.position = interpolators.position(sample_times)
+        self.acceleration = interpolators.acceleration(sample_times)
+        self.angular_velocity = interpolators.angular_velocity(sample_times)
+        self.rotation = interpolators.rotation(sample_times)
+
+
+class Sensor():
+    def __init__(self, samples):
+        # XXX do these @ work right if we have 3 samples?
+        inverse_rotations = -Rotation.from_rotvec(samples.rotation).as_matrix()
+        self.accelerometer = (
+            inverse_rotations @ (samples.acceleration + BASIS_GRAVITY)[:,:,np.newaxis]
+        ).squeeze()
+        self.magnetometer = inverse_rotations @ BASIS_MAGNETIC
+        self.gyroscope = samples.angular_velocity.copy()
+
+
+class NoisySensor():
+    def __init__(self, sensor):
+        # TODO noise
+        self.accelerometer = sensor.accelerometer.copy()
+        self.magnetometer = sensor.magnetometer.copy()
+        self.gyroscope = sensor.gyroscope.copy()
+
+def create_reference_times(
+    number_of_points,
+    duration_of_simulation,
+):
+    return np.linspace(0.0, duration_of_simulation, number_of_points)
+
+
+def create_sample_times(
+    number_of_samples,
+    duration_of_simulation,
+):
+    # TODO jitter
+    return np.linspace(0.0, duration_of_simulation, number_of_samples)
+
+
+def create_reference_velocity_and_angular_velocities(
+    number_of_points,
+    velocity_limit_per_dimension,
+    angular_velocity_limit_per_dimension,
+):
+    reference_velocity = np.random.uniform(-velocity_limit_per_dimension, velocity_limit_per_dimension, size=(number_of_points, 3))
+    reference_angular_velocity = np.random.uniform(-angular_velocity_limit_per_dimension, angular_velocity_limit_per_dimension, size=(number_of_points, 3))
+
+    return reference_velocity, reference_angular_velocity
+
+
+reference_times = create_reference_times(10, 11.0)
+
+reference_velocity, reference_angular_velocity = create_reference_velocity_and_angular_velocities(10, 10.0, 10.0)
+reference_velocity = reference_velocity * 0
+
+sample_times = create_sample_times(4, 11.0)
+
+interpolators = Interpolators(
+    reference_times,
+    reference_velocity,
+    reference_angular_velocity,
+    np.array([0.0, 0.0, 0.0]),
+)
+
+samples = Samples(sample_times, interpolators)
+
+sensor = Sensor(samples)
+
+sys.exit(0)
 
 
 def create_reference_locations_and_orientations(
