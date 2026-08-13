@@ -100,8 +100,9 @@ class Sensor():
     def __init__(self, samples):
         # XXX do these @ work right if we have 3 samples?
         inverse_rotations = -Rotation.from_rotvec(samples.rotation).as_matrix()
+        # TODO do a test that in free fall, we see the accelerometer appropriately affected (0 acceleration)
         self.accelerometer = (
-            inverse_rotations @ (samples.acceleration + BASIS_GRAVITY)[:,:,np.newaxis]
+            inverse_rotations @ (BASIS_GRAVITY - samples.acceleration)[:,:,np.newaxis]
         ).squeeze()
         self.magnetometer = inverse_rotations @ BASIS_MAGNETIC
         self.gyroscope = samples.angular_velocity.copy()
@@ -113,6 +114,7 @@ class NoisySensor():
         self.accelerometer = sensor.accelerometer.copy()
         self.magnetometer = sensor.magnetometer.copy()
         self.gyroscope = sensor.gyroscope.copy()
+
 
 def create_reference_times(
     number_of_points,
