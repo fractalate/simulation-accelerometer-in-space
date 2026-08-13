@@ -28,6 +28,7 @@ Reference data, target data, and noisy data are saved to separate files:
 * Target data: $w_k$, $\vec{x}(w_k)$, $\vec{v}(w_k)$, $\vec{a}(w_k)$, $\vec{a_t}(w_k)$, $\vec{m_t}(w_k)$, $\vec{\omega_t}(w_k)$, $\vec{R}(w_k)$.
 * Noisy data:  $w_k$, $\vec{a_n}(w_k)$, $\vec{m_n}(w_k)$, $\vec{\omega_n}(w_k)$
 
+Then a model can be trained from the noisy data to predict whichever data is interesting in the target data.
 
 ## Setup
 
