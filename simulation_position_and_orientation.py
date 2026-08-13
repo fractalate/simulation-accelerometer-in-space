@@ -88,8 +88,10 @@ def create_reference_locations_and_orientations(
     x = np.random.uniform(-step_size_x, step_size_x, size=number_of_points).cumsum()
     y = np.random.uniform(-step_size_y, step_size_y, size=number_of_points).cumsum()
     z = np.random.uniform(-step_size_z, step_size_z, size=number_of_points).cumsum()
-    # We want x0, y0, z0 = (0, 0, 0) since the starting position doesn't matter and the
-    # model we train on the data can assume the position starts there too.
+    # We want x0, y0, z0 = x1, y1, z1 = (0, 0, 0) since the starting position doesn't matter
+    # and the model we train can't infer a velocity from the acceleration readings, so it
+    # needs to start with initial velocity 0.
+    x[0], y[0], z[0] = x[1], y[1], z[1]
     x -= x[0]
     y -= y[0]
     z -= z[0]
