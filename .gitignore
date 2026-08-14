@@ -1,7 +1,4 @@
 __pycache__/
 *.pyc
 
-out.csv
-out_*.csv
-out.metadata.json
-out_*.metadata.json
+/out/

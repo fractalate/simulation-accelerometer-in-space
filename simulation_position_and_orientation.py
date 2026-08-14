@@ -11,22 +11,26 @@ import sys
 from util import rotate_about_x, rotate_about_y, rotate_about_z
 
 
+BASIS_GRAVITY = np.array([0.0, 0.0, -9.8])  # m/s^2 "down"
+BASIS_MAGNETIC = np.array([0.0, 5.0e-5, 0.0])  # tesla "north"
+
+DEFAULT_NOISE_ACCELEROMETER = 0.05  # m/s^2
+DEFAULT_NOISE_MAGNETOMETER = 1.25e-6  # tesla
+DEFAULT_NOISE_GYROSCOPE = 0.01*np.pi  # radians
+
+
 parser = argparse.ArgumentParser(description="Simulation of Accelerometer in Space")
 parser.add_argument("-o", "--output", default="out", help="output directory to save simulation files (will be created)")
 parser.add_argument("-f", "--force", action="store_true", default=False, help="set if you want to generate output in an existing output directory")
 parser.add_argument("-p", "--number-of-points", type=int, default=10, help="number of points to interpolate through in the simulation")
 parser.add_argument("-s", "--number-of-samples", type=int, default=1500, help="number of samples to take on interpolated curves")
-parser.add_argument("-n", "--number-of-simulations", type=int, default=10, help="number of simulations to produce")  # TODO validation
+parser.add_argument("-n", "--number-of-simulations", type=int, default=10, help="number of simulations to produce")
 parser.add_argument("-d", "--duration-of-simulation", type=float, default=10.0, help="length of simulation in seconds")
-parser.add_argument("--step-size-x", type=float, default=1.0, help="x step size")
-parser.add_argument("--step-size-y", type=float, default=1.0, help="y step size")
-parser.add_argument("--step-size-z", type=float, default=1.0, help="z step size")
-parser.add_argument("--turn-size-x", type=float, default=3.0/8.0*np.pi, help="x turn size in radians")
-parser.add_argument("--turn-size-y", type=float, default=3.0/8.0*np.pi, help="y turn size in radians")
-parser.add_argument("--turn-size-z", type=float, default=3.0/8.0*np.pi, help="z turn size in radians")
-parser.add_argument("--noise-accelerometer", type=float, default=0.05, help="accelerometer noise in m/s^2")  # TODO validation
-parser.add_argument("--noise-magnetometer", type=float, default=1.25e-6, help="magnetometer noise in tesla")  # TODO validation
-parser.add_argument("--noise-gyroscope", type=float, default=0.01*np.pi, help="gyroscope noise in radians")  # TODO validation
+parser.add_argument("--maximum-velocity", type=float, default=10.0, help="maximum velocity")
+parser.add_argument("--maximum-angular-velocity", type=float, default=1.0/8.0*np.pi, help="maximum angular velocity")
+parser.add_argument("--noise-accelerometer", type=float, default=DEFAULT_NOISE_ACCELEROMETER, help="accelerometer noise in m/s^2")
+parser.add_argument("--noise-magnetometer", type=float, default=DEFAULT_NOISE_MAGNETOMETER, help="magnetometer noise in tesla")
+parser.add_argument("--noise-gyroscope", type=float, default=DEFAULT_NOISE_GYROSCOPE, help="gyroscope noise in radians")
 
 args = parser.parse_args()
 
@@ -42,28 +46,28 @@ if args.duration_of_simulation <= 0:
     print(f"duration of simulation {args.duration_of_simulation} must be > 0", file=sys.stderr)
     sys.exit(1)
 
-if args.step_size_x <= 0:
-    print(f"step size x {args.step_size_x} must be > 0", file=sys.stderr)
+if args.number_of_simulations <= 0:
+    print(f"number of simulations {args.number_of_simulations} must be > 0", file=sys.stderr)
     sys.exit(1)
 
-if args.step_size_y <= 0:
-    print(f"step size y {args.step_size_y} must be > 0", file=sys.stderr)
+if args.maximum_velocity <= 0:
+    print(f"maximum velocity {args.maximum_velocity} must be > 0", file=sys.stderr)
     sys.exit(1)
 
-if args.step_size_z <= 0:
-    print(f"step size z {args.step_size_z} must be > 0", file=sys.stderr)
+if args.maximum_angular_velocity <= 0:
+    print(f"maximum angular velocity {args.maximum_angular_velocity} must be > 0", file=sys.stderr)
     sys.exit(1)
 
-if args.turn_size_x <= 0:
-    print(f"turn size x {args.turn_size_x} must be > 0", file=sys.stderr)
+if args.noise_accelerometer < 0:
+    print(f"accelerometer noise {args.noise_accelerometer} must be >= 0", file=sys.stderr)
     sys.exit(1)
 
-if args.turn_size_y <= 0:
-    print(f"turn size y {args.turn_size_y} must be > 0", file=sys.stderr)
+if args.noise_magnetometer < 0:
+    print(f"magnetometer noise {args.noise_magnetometer} must be >= 0", file=sys.stderr)
     sys.exit(1)
 
-if args.turn_size_z <= 0:
-    print(f"turn size z {args.turn_size_z} must be > 0", file=sys.stderr)
+if args.noise_gyroscope < 0:
+    print(f"gyroscope noise {args.noise_gyroscope} must be >= 0", file=sys.stderr)
     sys.exit(1)
 
 out_dir = pathlib.Path(args.output)
@@ -73,27 +77,32 @@ if out_dir.exists() and not args.force:
 out_dir.mkdir(exist_ok=args.force)
 
 
-BASIS_GRAVITY = np.array([0.0, 0.0, -9.8])  # Meters/Second
-BASIS_MAGNETIC = np.array([0.0, 5.0e-5, 0.0])  # Tesla
+class Reference():
+    def __init__(self, time, velocity, angular_velocity, initial_angular_velocity):
+        self.time = time
+        self.velocity = velocity
+        self.angular_velocity = angular_velocity
+        self.initial_angular_velocity = initial_angular_velocity
 
 
 class Interpolators():
-    def __init__(self, reference_times, reference_velocity, reference_angular_velocity, initial_angular_velocity):
-        self.velocity = CubicSpline(reference_times, reference_velocity)
+    def __init__(self, reference):
+        self.velocity = CubicSpline(reference.time, reference.velocity)
         self.position = self.velocity.antiderivative()
         self.acceleration = self.velocity.derivative()
-        self.angular_velocity = CubicSpline(reference_times, reference_angular_velocity)
+        self.angular_velocity = CubicSpline(reference.time, reference.angular_velocity)
         self.rotation = self.angular_velocity.antiderivative()
-        self.rotation.c[-1, :] += initial_angular_velocity
+        self.rotation.c[-1, :] += reference.initial_angular_velocity
 
 
 class Samples():
-    def __init__(self, sample_times, interpolators):
-        self.velocity = interpolators.velocity(sample_times)
-        self.position = interpolators.position(sample_times)
-        self.acceleration = interpolators.acceleration(sample_times)
-        self.angular_velocity = interpolators.angular_velocity(sample_times)
-        self.rotation = interpolators.rotation(sample_times)
+    def __init__(self, time, interpolators):
+        self.time = time
+        self.velocity = interpolators.velocity(time)
+        self.position = interpolators.position(time)
+        self.acceleration = interpolators.acceleration(time)
+        self.angular_velocity = interpolators.angular_velocity(time)
+        self.rotation = interpolators.rotation(time)
 
 
 class Sensor():
@@ -109,11 +118,10 @@ class Sensor():
 
 
 class NoisySensor():
-    def __init__(self, sensor):
-        # TODO noise
-        self.accelerometer = sensor.accelerometer.copy()
-        self.magnetometer = sensor.magnetometer.copy()
-        self.gyroscope = sensor.gyroscope.copy()
+    def __init__(self, sensor, noise_accelerometer, noise_magnetometer, noise_gyroscope):
+        self.accelerometer = sensor.accelerometer + np.random.uniform(-noise_accelerometer, noise_accelerometer, size=sensor.accelerometer.shape)
+        self.magnetometer = sensor.magnetometer + np.random.uniform(-noise_magnetometer, noise_magnetometer, size=sensor.magnetometer.shape)
+        self.gyroscope = sensor.gyroscope + np.random.uniform(-noise_gyroscope, noise_gyroscope, size=sensor.gyroscope.shape)
 
 
 def create_reference_times(
@@ -127,102 +135,7 @@ def create_sample_times(
     number_of_samples,
     duration_of_simulation,
 ):
-    # TODO jitter
-    return np.linspace(0.0, duration_of_simulation, number_of_samples)
-
-
-def create_reference_velocity_and_angular_velocities(
-    number_of_points,
-    velocity_limit_per_dimension,
-    angular_velocity_limit_per_dimension,
-):
-    reference_velocity = np.random.uniform(-velocity_limit_per_dimension, velocity_limit_per_dimension, size=(number_of_points, 3))
-    reference_angular_velocity = np.random.uniform(-angular_velocity_limit_per_dimension, angular_velocity_limit_per_dimension, size=(number_of_points, 3))
-
-    return reference_velocity, reference_angular_velocity
-
-
-reference_times = create_reference_times(10, 11.0)
-
-reference_velocity, reference_angular_velocity = create_reference_velocity_and_angular_velocities(10, 10.0, 10.0)
-reference_velocity = reference_velocity * 0
-
-sample_times = create_sample_times(4, 11.0)
-
-interpolators = Interpolators(
-    reference_times,
-    reference_velocity,
-    reference_angular_velocity,
-    np.array([0.0, 0.0, 0.0]),
-)
-
-samples = Samples(sample_times, interpolators)
-
-sensor = Sensor(samples)
-
-sys.exit(0)
-
-
-def create_reference_locations_and_orientations(
-    number_of_points,
-    step_size_x,
-    step_size_y,
-    step_size_z,
-    turn_size_x,
-    turn_size_y,
-    turn_size_z,
-):
-    x = np.random.uniform(-step_size_x, step_size_x, size=number_of_points).cumsum()
-    y = np.random.uniform(-step_size_y, step_size_y, size=number_of_points).cumsum()
-    z = np.random.uniform(-step_size_z, step_size_z, size=number_of_points).cumsum()
-    # We want x0, y0, z0 = x1, y1, z1 = (0, 0, 0) since the starting position doesn't matter
-    # and the model we train can't infer a velocity from the acceleration readings, so it
-    # needs to start with initial velocity 0.
-    x[0], y[0], z[0] = x[1], y[1], z[1]
-    x -= x[0]
-    y -= y[0]
-    z -= z[0]
-
-    thetas_initial = np.random.uniform(0.0, 2.0*np.pi, size=3)
-    theta_x = np.random.uniform(-turn_size_x, turn_size_x, size=number_of_points).cumsum() + thetas_initial[0]
-    theta_y = np.random.uniform(-turn_size_y, turn_size_y, size=number_of_points).cumsum() + thetas_initial[1]
-    theta_z = np.random.uniform(-turn_size_z, turn_size_z, size=number_of_points).cumsum() + thetas_initial[2]
-
-    return x, y, z, theta_x, theta_y, theta_z
-
-
-def create_reference_times(
-    number_of_points,
-    duration_of_simulation,
-):
-    return np.linspace(0.0, duration_of_simulation, number_of_points)
-
-
-def create_interpolators(
-    t,
-    x,
-    y,
-    z,
-    theta_x,
-    theta_y,
-    theta_z,
-):
-    interpolator_x = CubicSpline(t, x)
-    interpolator_y = CubicSpline(t, y)
-    interpolator_z = CubicSpline(t, z)
-
-    interpolator_theta_x = CubicSpline(t, theta_x)
-    interpolator_theta_y = CubicSpline(t, theta_y)
-    interpolator_theta_z = CubicSpline(t, theta_z)
-
-    return interpolator_x, interpolator_y, interpolator_z, interpolator_theta_x, interpolator_theta_y, interpolator_theta_z
-
-
-def create_noisy_sample_times(
-    number_of_samples,
-    duration_of_simulation,
-):
-    sample_t = np.linspace(0.0, duration_of_simulation, number_of_samples)
+    sample_times = np.linspace(0.0, duration_of_simulation, number_of_samples)
 
     duration_per_sample = duration_of_simulation / number_of_samples
     jitter_time = duration_per_sample / 5  # TODO maybe it make sense to have this be a parameter?
@@ -233,357 +146,252 @@ def create_noisy_sample_times(
         # We want times to be roughly equally spaced, so use a normal distribution so we're
         # roughly on the expected references times.
         jitters = np.random.normal(loc=0.0, scale=jitter_time, size=number_of_samples)
-        maybe_sample_t = sample_t + jitters
+        maybe_sample_times = sample_times + jitters
 
         # Reject jitters that put the samples too close together or reorder them.
         for i in range(number_of_samples - 1):
-            if maybe_sample_t[i] >= maybe_sample_t[i + 1]:
+            if maybe_sample_times[i] >= maybe_sample_times[i + 1]:
                 suitable = False
                 break
 
         if suitable:
             # TODO not sure if I should normalize so t0 = 0. ideally we wouldn't have to since essentially
             # the model we train should be concerned with the time deltas primarily.
-            sample_t = maybe_sample_t
+            sample_times = maybe_sample_times
             break
 
-    return sample_t
+    return sample_times
 
 
-def create_target_sample_locations(
-    sample_t,
-    interpolator_x,
-    interpolator_y,
-    interpolator_z,
-):
-    sample_x = interpolator_x(sample_t)
-    sample_y = interpolator_y(sample_t)
-    sample_z = interpolator_z(sample_t)
-
-    return sample_x, sample_y, sample_z
-
-
-def create_target_sample_orientations(
-    sample_t,
-    interpolator_theta_x,
-    interpolator_theta_y,
-    interpolator_theta_z,
-):
-    sample_theta_x = interpolator_theta_x(sample_t)
-    sample_theta_y = interpolator_theta_y(sample_t)
-    sample_theta_z = interpolator_theta_z(sample_t)
-
-    return sample_theta_x, sample_theta_y, sample_theta_z
-
-
-def calculate_sample_sensor_readings(
-    sample_t,
-    sample_theta_x,
-    sample_theta_y,
-    sample_theta_z,
-    interpolator_x,
-    interpolator_y,
-    interpolator_z,
-    interpolator_theta_x,
-    interpolator_theta_y,
-    interpolator_theta_z,
-):
-    # 2nd derivative of position is acceleration.
-    interpolator_acceleration_x = interpolator_x.derivative(2)
-    interpolator_acceleration_y = interpolator_y.derivative(2)
-    interpolator_acceleration_z = interpolator_z.derivative(2)
-
-    sample_acceleration_absolute_x = interpolator_acceleration_x(sample_t)
-    sample_acceleration_absolute_y = interpolator_acceleration_y(sample_t)
-    sample_acceleration_absolute_z = interpolator_acceleration_z(sample_t)
-    sample_acceleration_absolute = np.stack([
-        sample_acceleration_absolute_x,
-        sample_acceleration_absolute_y,
-        sample_acceleration_absolute_z,
-    ]).T
-
-    # 1st derivative of orientation angle is angular velocity.
-    interpolator_angular_velocity_x = interpolator_theta_x.derivative(1)
-    interpolator_angular_velocity_y = interpolator_theta_y.derivative(1)
-    interpolator_angular_velocity_z = interpolator_theta_z.derivative(1)
-
-    sample_angular_velocity_x = interpolator_angular_velocity_x(sample_t)
-    sample_angular_velocity_y = interpolator_angular_velocity_y(sample_t)
-    sample_angular_velocity_z = interpolator_angular_velocity_z(sample_t)
-
-    # Theta measures the orientation of the unit and rotation has the inverse reaction on the
-    # sensor reading, so invert the angles and create the naive rotation matrix ("naive" because
-    # it's not the 4D rotation matrix or quaternions which are generally better in practice).
-    rotate_x = rotate_about_x(-sample_theta_x)
-    rotate_y = rotate_about_y(-sample_theta_y)
-    rotate_z = rotate_about_z(-sample_theta_z)
-    rotation_action_matrix = (
-        rotate_z.transpose(2, 0, 1) @
-        rotate_y.transpose(2, 0, 1) @
-        rotate_x.transpose(2, 0, 1)
-    )
-
-    sample_gravity = (rotation_action_matrix @ BASIS_GRAVITY).T
-    # Need to expand sample_acceleration_absolute for @ broadcasting. (N, 3, 3) @ (N, 3, 1) -> (N, 3)
-    accel_vector_oriented = (rotation_action_matrix @ sample_acceleration_absolute[:,:,np.newaxis]).squeeze()
-    sample_acceleration = accel_vector_oriented.T + sample_gravity
-
-    sample_magnetic = (rotation_action_matrix @ BASIS_MAGNETIC).T
-
-    sample_angular_velocity = np.stack([
-        sample_angular_velocity_x,
-        sample_angular_velocity_y,
-        sample_angular_velocity_z,
-    ]).T
-
-    return (
-        sample_acceleration,
-        sample_magnetic,
-        sample_angular_velocity,
-    )
-
-
-# TODO this should become a class so we can separate concerns more and store the relevant values in the class, separate writing
-def run_simulation(
-    out_dir,
-    simulation_no,
+def create_random_reference_velocity_and_angular_velocities(
     number_of_points,
-    duration_of_simulation,
+    maximum_velocity,
+    maximum_angular_velocity,
+):
+    reference_velocity = np.random.uniform(-maximum_velocity, maximum_velocity, size=(number_of_points, 3))
+    reference_angular_velocity = np.random.uniform(-maximum_angular_velocity, maximum_angular_velocity, size=(number_of_points, 3))
+
+    return reference_velocity, reference_angular_velocity
+
+
+def run_sample_01():
+    reference_velocity, reference_angular_velocity = create_random_reference_velocity_and_angular_velocities(10, 10.0, 10.0)
+    reference_velocity = reference_velocity * 0
+    reference_times = create_reference_times(10, 11.0)
+
+    sample_times = create_sample_times(4, 11.0)
+
+    reference = Reference(
+        reference_times,
+        reference_velocity,
+        reference_angular_velocity,
+        np.array([0.0, 0.0, 0.0]),
+    )
+    interpolators = Interpolators(reference)
+    samples = Samples(sample_times, interpolators)
+    sensor = Sensor(samples)
+    noisy_sensor = NoisySensor(
+        sensor,
+        noise_accelerometer=DEFAULT_NOISE_ACCELEROMETER,
+        noise_magnetometer=DEFAULT_NOISE_MAGNETOMETER,
+        noise_gyroscope=DEFAULT_NOISE_GYROSCOPE,
+    )
+
+    return reference, samples, sensor, noisy_sensor
+
+
+def run_simulation(
+    number_of_points,
     number_of_samples,
-    step_size_x,
-    step_size_y,
-    step_size_z,
-    turn_size_x,
-    turn_size_y,
-    turn_size_z,
+    duration_of_simulation,
+    maximum_velocity,
+    maximum_angular_velocity,
     noise_accelerometer,
     noise_magnetometer,
     noise_gyroscope,
 ):
-    t = create_reference_times(
-        number_of_points=number_of_points,
-        duration_of_simulation=duration_of_simulation,
+    reference_velocity, reference_angular_velocity = create_random_reference_velocity_and_angular_velocities(
+        number_of_points,
+        maximum_velocity,
+        maximum_angular_velocity,
+    )
+    reference_times = create_reference_times(number_of_points, duration_of_simulation)
+
+    sample_times = create_sample_times(number_of_samples, duration_of_simulation)
+
+    initial_angular_velocity = np.random.uniform(0.0, 2.0*np.pi, size=3)
+
+    reference = Reference(
+        reference_times,
+        reference_velocity,
+        reference_angular_velocity,
+        initial_angular_velocity,
+    )
+    interpolators = Interpolators(reference)
+    samples = Samples(sample_times, interpolators)
+    sensor = Sensor(samples)
+    noisy_sensor = NoisySensor(
+        sensor,
+        noise_accelerometer=noise_accelerometer,
+        noise_magnetometer=noise_magnetometer,
+        noise_gyroscope=noise_gyroscope,
     )
 
-    x, y, z, theta_x, theta_y, theta_z = create_reference_locations_and_orientations(
-        number_of_points=number_of_points,
-        step_size_x=step_size_x,
-        step_size_y=step_size_y,
-        step_size_z=step_size_z,
-        turn_size_x=turn_size_x,
-        turn_size_y=turn_size_y,
-        turn_size_z=turn_size_z,
-    )
-
-    reference_schema = pa.schema([
-        ("t", pa.float64()),
-        ("x", pa.float64()),
-        ("y", pa.float64()),
-        ("z", pa.float64()),
-        ("theta_x", pa.float64()),
-        ("theta_y", pa.float64()),
-        ("theta_z", pa.float64()),
-    ]).with_metadata({
-        b"parameters": json.dumps({
-            "number_of_points": number_of_points,
-            "duration_of_simulation": duration_of_simulation,
-            "number_of_samples": number_of_samples,
-            "step_size_x": step_size_x,
-            "step_size_y": step_size_y,
-            "step_size_z": step_size_z,
-            "turn_size_x": turn_size_x,
-            "turn_size_y": turn_size_y,
-            "turn_size_z": turn_size_z,
-            "noise_accelerometer": noise_accelerometer,
-            "noise_magnetometer": noise_magnetometer,
-            "noise_gyroscope": noise_gyroscope,
-        }).encode(),
-    })
-
-    with pq.ParquetWriter(out_dir / f"reference_{simulation_no}.parquet", reference_schema) as writer:
-        table = pa.table({
-            "t": t,
-            "x": x,
-            "y": y,
-            "z": z,
-            "theta_x": theta_x,
-            "theta_y": theta_y,
-            "theta_z": theta_z,
-        }, schema=reference_schema)
-        writer.write_table(table)
-
-    (
-        interpolator_x,
-        interpolator_y,
-        interpolator_z,
-        interpolator_theta_x,
-        interpolator_theta_y,
-        interpolator_theta_z 
-    ) = create_interpolators(
-        t=t,
-        x=x,
-        y=y,
-        z=z,
-        theta_x=theta_x,
-        theta_y=theta_y,
-        theta_z=theta_z,
-    )
-
-    sample_t = create_noisy_sample_times(
-        number_of_samples=number_of_samples,
-        duration_of_simulation=duration_of_simulation,
-    )
-
-    (
-        sample_x,
-        sample_y,
-        sample_z,
-    ) = create_target_sample_locations(
-        sample_t=sample_t,
-        interpolator_x=interpolator_x,
-        interpolator_y=interpolator_y,
-        interpolator_z=interpolator_z,
-    )
-
-    (
-        sample_theta_x,
-        sample_theta_y,
-        sample_theta_z,
-    ) = create_target_sample_orientations(
-        sample_t=sample_t,
-        interpolator_theta_x=interpolator_theta_x,
-        interpolator_theta_y=interpolator_theta_y,
-        interpolator_theta_z=interpolator_theta_z,
-    )
-
-    # TODO fix it so all three of these are the same shape
-    (
-        sample_acceleration,
-        sample_magnetic,
-        sample_angular_velocity,
-    ) = calculate_sample_sensor_readings(
-        sample_t=sample_t,
-        sample_theta_x=sample_theta_x,
-        sample_theta_y=sample_theta_y,
-        sample_theta_z=sample_theta_z,
-        interpolator_x=interpolator_x,
-        interpolator_y=interpolator_y,
-        interpolator_z=interpolator_z,
-        interpolator_theta_x=interpolator_theta_x,
-        interpolator_theta_y=interpolator_theta_y,
-        interpolator_theta_z=interpolator_theta_z,
-    )
-
-    target_schema = pa.schema([
-        ("t", pa.float64()),
-        ("x", pa.float64()),
-        ("y", pa.float64()),
-        ("z", pa.float64()),
-        ("theta_x", pa.float64()),
-        ("theta_y", pa.float64()),
-        ("theta_z", pa.float64()),
-        ("acceleration_x", pa.float64()),
-        ("acceleration_y", pa.float64()),
-        ("acceleration_z", pa.float64()),
-        ("magnetic_x", pa.float64()),
-        ("magnetic_y", pa.float64()),
-        ("magnetic_z", pa.float64()),
-        ("gyroscope_x", pa.float64()),
-        ("gyroscope_y", pa.float64()),
-        ("gyroscope_z", pa.float64()),
-    ])
-
-    with pq.ParquetWriter(out_dir / f"target_{simulation_no}.parquet", target_schema) as writer:
-        table = pa.table({
-            "t": sample_t,
-            "x": sample_x,
-            "y": sample_y,
-            "z": sample_z,
-            "theta_x": sample_theta_x,
-            "theta_y": sample_theta_y,
-            "theta_z": sample_theta_z,
-            "acceleration_x": sample_acceleration[0, :],
-            "acceleration_y": sample_acceleration[1, :],
-            "acceleration_z": sample_acceleration[2, :],
-            "magnetic_x": sample_magnetic[0, :],
-            "magnetic_y": sample_magnetic[1, :],
-            "magnetic_z": sample_magnetic[2, :],
-            "gyroscope_x": sample_angular_velocity[:, 0],
-            "gyroscope_y": sample_angular_velocity[:, 1],
-            "gyroscope_z": sample_angular_velocity[:, 2],
-        }, schema=target_schema)
-        writer.write_table(table)
-
-    # We want white noise on the sensor, so use a uniform distribution.
-    noisy_acceleration = sample_acceleration + np.random.uniform(-noise_accelerometer, noise_accelerometer, size=sample_acceleration.shape)
-    noisy_magnetic = sample_magnetic + np.random.uniform(-noise_magnetometer, noise_magnetometer, size=sample_magnetic.shape)
-    noisy_angular_velocity = sample_angular_velocity + np.random.uniform(-noise_gyroscope, noise_gyroscope, size=sample_angular_velocity.shape)
-
-    noisy_schema = pa.schema([
-        ("t", pa.float64()),
-        ("acceleration_x", pa.float64()),
-        ("acceleration_y", pa.float64()),
-        ("acceleration_z", pa.float64()),
-        ("magnetic_x", pa.float64()),
-        ("magnetic_y", pa.float64()),
-        ("magnetic_z", pa.float64()),
-        ("gyroscope_x", pa.float64()),
-        ("gyroscope_y", pa.float64()),
-        ("gyroscope_z", pa.float64()),
-    ])
-
-    with pq.ParquetWriter(out_dir / f"noisy_{simulation_no}.parquet", noisy_schema) as writer:
-        table = pa.table({
-            "t": sample_t,
-            "acceleration_x": noisy_acceleration[0, :],
-            "acceleration_y": noisy_acceleration[1, :],
-            "acceleration_z": noisy_acceleration[2, :],
-            "magnetic_x": noisy_magnetic[0, :],
-            "magnetic_y": noisy_magnetic[1, :],
-            "magnetic_z": noisy_magnetic[2, :],
-            "gyroscope_x": noisy_angular_velocity[:, 0],
-            "gyroscope_y": noisy_angular_velocity[:, 1],
-            "gyroscope_z": noisy_angular_velocity[:, 2],
-        }, schema=noisy_schema)
-        writer.write_table(table)
-
-    return (
-        sample_t,
-        sample_x,
-        sample_y,
-        sample_z,
-        noisy_acceleration,
-        noisy_magnetic,
-        noisy_angular_velocity,
-    )
+    return reference, samples, sensor, noisy_sensor
 
 
-for simulation_no in range(args.number_of_simulations):
-    print(f"simulation {simulation_no}...")
-    (
-        sample_t,
-        sample_x,
-        sample_y,
-        sample_z,
-        noisy_acceleration,
-        noisy_magnetic,
-        noisy_angular_velocity,
-    ) = run_simulation(
-        out_dir=out_dir,
-        simulation_no=simulation_no,
+def simulation_harness(
+    number_of_simulations,
+    number_of_points,
+    number_of_samples,
+    duration_of_simulation,
+    maximum_velocity,
+    maximum_angular_velocity,
+    noise_accelerometer,
+    noise_magnetometer,
+    noise_gyroscope,
+):
+    for simulation_no in range(number_of_simulations):
+        reference, samples, sensor, noisy_sensor = run_simulation(
+            number_of_points=number_of_points,
+            number_of_samples=number_of_samples,
+            duration_of_simulation=duration_of_simulation,
+            maximum_velocity=maximum_velocity,
+            maximum_angular_velocity=maximum_angular_velocity,
+            noise_accelerometer=noise_accelerometer,
+            noise_magnetometer=noise_magnetometer,
+            noise_gyroscope=noise_gyroscope,
+        )
+
+        reference_schema = pa.schema([
+            ("time", pa.float64()),
+            ("velocity_x", pa.float64()),
+            ("velocity_y", pa.float64()),
+            ("velocity_z", pa.float64()),
+            ("angular_velocity_x", pa.float64()),
+            ("angular_velocity_y", pa.float64()),
+            ("angular_velocity_z", pa.float64()),
+        ]).with_metadata({
+            b"parameters": json.dumps({
+                "number_of_points": number_of_points,
+                "number_of_samples": number_of_samples,
+                "duration_of_simulation": duration_of_simulation,
+                "maximum_velocity": maximum_velocity,
+                "maximum_angular_velocity": maximum_angular_velocity,
+                "noise_accelerometer": noise_accelerometer,
+                "noise_magnetometer": noise_magnetometer,
+                "noise_gyroscope": noise_gyroscope,
+            }).encode(),
+        })
+
+        with pq.ParquetWriter(out_dir / f"reference_{simulation_no}.parquet", reference_schema) as writer:
+            table = pa.table({
+                "time": reference.time,
+                "velocity_x": reference.velocity[:, 0],
+                "velocity_y": reference.velocity[:, 1],
+                "velocity_z": reference.velocity[:, 2],
+                "angular_velocity_x": reference.angular_velocity[:, 0],
+                "angular_velocity_y": reference.angular_velocity[:, 1],
+                "angular_velocity_z": reference.angular_velocity[:, 2],
+            }, schema=reference_schema)
+            writer.write_table(table)
+
+        target_schema = pa.schema([
+            ("time", pa.float64()),
+            ("x", pa.float64()),
+            ("y", pa.float64()),
+            ("z", pa.float64()),
+            ("velocity_x", pa.float64()),
+            ("velocity_y", pa.float64()),
+            ("velocity_z", pa.float64()),
+            ("acceleration_x", pa.float64()),
+            ("acceleration_y", pa.float64()),
+            ("acceleration_z", pa.float64()),
+            ("angular_velocity_x", pa.float64()),
+            ("angular_velocity_y", pa.float64()),
+            ("angular_velocity_z", pa.float64()),
+            ("rotation_x", pa.float64()),
+            ("rotation_y", pa.float64()),
+            ("rotation_z", pa.float64()),
+            ("accelerometer_x", pa.float64()),
+            ("accelerometer_y", pa.float64()),
+            ("accelerometer_z", pa.float64()),
+            ("magnetometer_x", pa.float64()),
+            ("magnetometer_y", pa.float64()),
+            ("magnetometer_z", pa.float64()),
+            ("gyroscope_x", pa.float64()),
+            ("gyroscope_y", pa.float64()),
+            ("gyroscope_z", pa.float64()),
+        ])
+
+        with pq.ParquetWriter(out_dir / f"target_{simulation_no}.parquet", target_schema) as writer:
+            table = pa.table({
+                "time": samples.time,
+                "x": samples.position[:, 0],
+                "y": samples.position[:, 1],
+                "z": samples.position[:, 2],
+                "velocity_x": samples.velocity[:, 0],
+                "velocity_y": samples.velocity[:, 1],
+                "velocity_z": samples.velocity[:, 2],
+                "acceleration_x": samples.acceleration[:, 0],
+                "acceleration_y": samples.acceleration[:, 1],
+                "acceleration_z": samples.acceleration[:, 2],
+                "angular_velocity_x": samples.angular_velocity[:, 0],
+                "angular_velocity_y": samples.angular_velocity[:, 1],
+                "angular_velocity_z": samples.angular_velocity[:, 2],
+                "rotation_x": samples.rotation[:, 0],
+                "rotation_y": samples.rotation[:, 1],
+                "rotation_z": samples.rotation[:, 2],
+                "accelerometer_x": sensor.accelerometer[:, 0],
+                "accelerometer_y": sensor.accelerometer[:, 1],
+                "accelerometer_z": sensor.accelerometer[:, 2],
+                "magnetometer_x": sensor.magnetometer[:, 0],
+                "magnetometer_y": sensor.magnetometer[:, 1],
+                "magnetometer_z": sensor.magnetometer[:, 2],
+                "gyroscope_x": sensor.gyroscope[:, 0],
+                "gyroscope_y": sensor.gyroscope[:, 1],
+                "gyroscope_z": sensor.gyroscope[:, 2],
+            }, schema=target_schema)
+            writer.write_table(table)
+
+        noisy_schema = pa.schema([
+            ("time", pa.float64()),
+            ("accelerometer_x", pa.float64()),
+            ("accelerometer_y", pa.float64()),
+            ("accelerometer_z", pa.float64()),
+            ("magnetometer_x", pa.float64()),
+            ("magnetometer_y", pa.float64()),
+            ("magnetometer_z", pa.float64()),
+            ("gyroscope_x", pa.float64()),
+            ("gyroscope_y", pa.float64()),
+            ("gyroscope_z", pa.float64()),
+        ])
+
+        with pq.ParquetWriter(out_dir / f"noisy_{simulation_no}.parquet", noisy_schema) as writer:
+            table = pa.table({
+                "time": samples.time,
+                "accelerometer_x": noisy_sensor.accelerometer[:, 0],
+                "accelerometer_y": noisy_sensor.accelerometer[:, 1],
+                "accelerometer_z": noisy_sensor.accelerometer[:, 2],
+                "magnetometer_x": noisy_sensor.magnetometer[:, 0],
+                "magnetometer_y": noisy_sensor.magnetometer[:, 1],
+                "magnetometer_z": noisy_sensor.magnetometer[:, 2],
+                "gyroscope_x": noisy_sensor.gyroscope[:, 0],
+                "gyroscope_y": noisy_sensor.gyroscope[:, 1],
+                "gyroscope_z": noisy_sensor.gyroscope[:, 2],
+            }, schema=noisy_schema)
+            writer.write_table(table)
+
+
+if __name__ == "__main__":
+    simulation_harness(
+        number_of_simulations=args.number_of_simulations,
         number_of_points=args.number_of_points,
-        duration_of_simulation=args.duration_of_simulation,
         number_of_samples=args.number_of_samples,
-        step_size_x=args.step_size_x,
-        step_size_y=args.step_size_y,
-        step_size_z=args.step_size_z,
-        turn_size_x=args.turn_size_x,
-        turn_size_y=args.turn_size_y,
-        turn_size_z=args.turn_size_z,
+        duration_of_simulation=args.duration_of_simulation,
+        maximum_velocity=args.maximum_velocity,
+        maximum_angular_velocity=args.maximum_angular_velocity,
         noise_accelerometer=args.noise_accelerometer,
         noise_magnetometer=args.noise_magnetometer,
         noise_gyroscope=args.noise_gyroscope,
     )
-    print("done!")
-
-# TODO write to output file
