@@ -111,7 +111,7 @@ class Sensor():
         inverse_rotations = -Rotation.from_rotvec(samples.rotation).as_matrix()
         # TODO do a test that in free fall, we see the accelerometer appropriately affected (0 acceleration)
         self.accelerometer = (
-            inverse_rotations @ (BASIS_GRAVITY - samples.acceleration)[:,:,np.newaxis]
+            inverse_rotations @ (BASIS_GRAVITY - samples.acceleration)[:,:,np.newaxis]  # TODO validate this with some simple tests and update the readme if it needs it, it's currently in disagreement with it
         ).squeeze()
         self.magnetometer = inverse_rotations @ BASIS_MAGNETIC
         self.gyroscope = samples.angular_velocity.copy()
