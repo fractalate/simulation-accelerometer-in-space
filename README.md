@@ -42,7 +42,7 @@ pip install numpy scipy matplotlib pyarrow
 
 ## Examples
 
-```
+```bash
 python3 simulation_position_and_orientation.py -o out
 ```
 
@@ -51,3 +51,9 @@ This will create synthetic sensor data and supporting information in the `out` d
 * `reference_#.parquet` - Data about sample true reference points.
 * `target_#.parquet` - Perfect sensor readings with sensor timing jitter.
 * `noisy_#.parquet` - Noisy sensor readings with the same sensor timing jitter.
+
+```bash
+python3 render.py -f accelerometer_x,accelerometer_y,accelerometer_z out/noisy_0.parquet
+```
+
+This will render the accelerometer data from one of the noisy sensor files.
