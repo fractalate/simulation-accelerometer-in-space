@@ -8,8 +8,6 @@ from scipy.interpolate import CubicSpline
 from scipy.spatial.transform import Rotation
 import sys
 
-from util import rotate_about_x, rotate_about_y, rotate_about_z
-
 
 BASIS_GRAVITY = np.array([0.0, 0.0, -9.8])  # m/s^2 "down"
 BASIS_MAGNETIC = np.array([0.0, 5.0e-5, 0.0])  # tesla "north"

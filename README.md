@@ -2,6 +2,8 @@
 
 Tools for producing synthetic sensor readings of an accelerometer, gyroscope, and/or magnetometer under various kinds of motion.
 
+![Noisy Sensor Data](./noisy_sensor.png)
+
 Assumptions:
 
 * We don't travel very far so that the curvature of the planet isn't a concern:
