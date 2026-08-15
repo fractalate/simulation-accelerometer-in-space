@@ -18,7 +18,7 @@ For orientation, we create a sequence of $`P`$ varying reference angular velocit
 
 To produce accelerometer and magnetometer readings we apply Rodrigues' rotation formula, which we'll denote with $`\mathcal{R}`$, in various ways. Let $`\mathbf{g}`$ be a vector representing the acceleration due to gravity (it points "down") and $`\mathbf{m}`$ be a vector representing the planet's magnetic flux density (it points "north").
 
-The target accelerometer reading is $`\mathbf{a_t}(t) = \mathcal{R}(-\mathbf{R}(t),\mathbf{g})+\mathcal{R}(-\mathbf{R}(t),\mathbf{a}(t))`$. The target magnetometer reading is $`\mathbf{m_t}(t) = \mathcal{R}(-\mathbf{R}(t),\mathbf{m})`$. The target gyroscope reading is $`\mathbf{\omega_t}(t) = \mathbf{\omega}(t)`$.
+The target accelerometer reading is $`\mathbf{a_t}(t) = \mathcal{R}(-\mathbf{R}(t),\mathbf{g}-\mathbf{a}(t))`$. The target magnetometer reading is $`\mathbf{m_t}(t) = \mathcal{R}(-\mathbf{R}(t),\mathbf{m})`$. The target gyroscope reading is $`\mathbf{\omega_t}(t) = \mathbf{\omega}(t)`$.
 
 We choose $`S`$ sample times $`w_k`$ where $`t_0 \le w_k \le t_{P-1}`$ to sample the readings. Values for $`w_k`$ are initially chosen with equal spacing over the time range, but are "jittered" by altering them by amounts chosen from a normal distribution since the sensor operates at a regular interval, but not perfectly. Noisy readings are produced by sampling the true readings at times $`w_k`$ and then adding white noise (via a uniform distribution) to produce $`\mathbf{a_n}(w_k)`$, $`\mathbf{m_n}(w_k)`$, and $`\mathbf{\omega_n}(w_k)`$.
 
